@@ -48,6 +48,20 @@ fn run_linux_command(program: &str, args: &[&str]) -> Result<Option<String>> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn linux_window_display_name(window_id: &str) -> Option<String> {
+    run_linux_command("xdotool", &["getwindowclassname", window_id])
+        .ok()
+        .flatten()
+        .or_else(|| {
+            run_linux_command("xdotool", &["getwindowname", window_id])
+                .ok()
+                .flatten()
+        })
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(target_os = "macos")]
 static MACOS_APP_ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
@@ -306,14 +320,15 @@ pub(crate) fn capture_foreground_app() -> Result<Option<ForegroundAppResult>> {
         let Some(window_id) = run_linux_command("xdotool", &["getactivewindow"])? else {
             return Ok(None);
         };
-        let Some(pid) = run_linux_command("xdotool", &["getwindowpid", window_id.as_str()])? else {
-            return Ok(None);
-        };
-        let app_path = fs::read_link(format!("/proc/{pid}/exe"))
-            .ok()
-            .map(|path| path.to_string_lossy().to_string());
-        let process_name = fs::read_to_string(format!("/proc/{pid}/comm"))
-            .ok()
+        let pid = run_linux_command("xdotool", &["getwindowpid", window_id.as_str()])?;
+        let app_path = pid.as_deref().and_then(|value| {
+            fs::read_link(format!("/proc/{value}/exe"))
+                .ok()
+                .map(|path| path.to_string_lossy().to_string())
+        });
+        let process_name = pid
+            .as_deref()
+            .and_then(|value| fs::read_to_string(format!("/proc/{value}/comm")).ok())
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .or_else(|| {
@@ -323,15 +338,10 @@ pub(crate) fn capture_foreground_app() -> Result<Option<ForegroundAppResult>> {
                     .and_then(|stem| stem.to_str())
                     .map(ToString::to_string)
             })
+            .or_else(|| linux_window_display_name(window_id.as_str()))
             .unwrap_or_default();
         let display_name =
-            run_linux_command("xdotool", &["getwindowclassname", window_id.as_str()])?
-                .or_else(|| {
-                    run_linux_command("xdotool", &["getwindowname", window_id.as_str()])
-                        .ok()
-                        .flatten()
-                })
-                .unwrap_or_else(|| process_name.clone());
+            linux_window_display_name(window_id.as_str()).unwrap_or_else(|| process_name.clone());
 
         if !display_name.is_empty() || !process_name.is_empty() {
             return Ok(Some(ForegroundAppResult {
@@ -616,8 +626,8 @@ fn local_image_file_to_data_url(path: &std::path::Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_captured_clipboard, history_item_to_dto, normalized_app_display_name,
-        source_app_label,
+        build_captured_clipboard, friendly_process_name, history_item_to_dto,
+        normalized_app_display_name, source_app_label,
     };
     use crate::models::{AppSettings, CapturedClipboard, ForegroundAppResult, StoredClipboardItem};
     use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
@@ -645,6 +655,12 @@ mod tests {
         });
 
         assert_eq!(label.as_deref(), Some("Dingtalk"));
+    }
+
+    #[test]
+    fn formats_known_process_names_for_ui_labels() {
+        assert_eq!(friendly_process_name("code"), "VS Code");
+        assert_eq!(friendly_process_name("chrome"), "Google Chrome");
     }
 
     #[test]

@@ -720,6 +720,23 @@ select {
   flex: 0 0 auto;
 }
 
+.source-app-icon-monogram {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent-primary-soft) 72%, transparent);
+  color: color-mix(in srgb, var(--accent-primary) 76%, var(--app-text) 24%);
+  font-size: 0.54rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .source-app-icon-image,
 .source-app-icon-fallback {
   width: 16px;

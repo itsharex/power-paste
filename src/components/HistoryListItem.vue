@@ -31,6 +31,25 @@ const hasTextPreview = computed(() => {
 const hasMixedPreview = computed(
   () => props.item?.kind === 'mixed' && Boolean(props.item?.imageDataUrl) && hasTextPreview.value,
 )
+const sourceAppInitials = computed(() => {
+  const sourceApp = typeof props.item?.sourceApp === 'string' ? props.item.sourceApp.trim() : ''
+  if (!sourceApp) {
+    return ''
+  }
+
+  const segments = sourceApp
+    .split(/[\s._-]+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+  if (segments.length >= 2) {
+    return segments
+      .slice(0, 2)
+      .map((segment) => segment[0]?.toUpperCase() ?? '')
+      .join('')
+  }
+
+  return sourceApp.slice(0, 2).toUpperCase()
+})
 const relativeTimeLabel = computed(() => {
   const version = props.relativeTimeVersion
   if (version < 0) {
@@ -145,6 +164,9 @@ function handlePreviewMouseLeave() {
             alt=""
             class="source-app-icon-image"
           />
+          <span v-else-if="sourceAppInitials" aria-hidden="true" class="source-app-icon-monogram">
+            {{ sourceAppInitials }}
+          </span>
           <svg v-else viewBox="0 0 16 16" aria-hidden="true" class="source-app-icon-fallback">
             <path
               d="M2.5 3.2a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9.6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V3.2Zm2 1.2v2.4h2.4V4.4H4.5Zm4.6 0v2.4h2.4V4.4H9.1ZM4.5 9.2v2.4h2.4V9.2H4.5Zm4.6 0v2.4h2.4V9.2H9.1Z"
