@@ -1,11 +1,18 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { openExternalUrl } from '../services/tauriApi'
 import checkIcon from '../assets/check.svg'
 
 const ABOUT_INFO = {
   repositoryUrl: 'https://github.com/iFence/power-paste',
 }
+
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
 
 const props = defineProps({
   appVersion: { type: String, required: true },
@@ -29,6 +36,7 @@ const props = defineProps({
   onClearUpdateDebugStatus: { type: Function, required: true },
   onInstallUpdate: { type: Function, required: true },
   onSetUpdateDebugStatus: { type: Function, required: true },
+  onSetUpdateDebugStatusWithOverrides: { type: Function, required: true },
   openSelectKey: { type: String, default: null },
   platformCapabilities: { type: Object, required: true },
   recordingShortcut: { type: Boolean, required: true },
@@ -54,6 +62,8 @@ const emit = defineEmits(['close'])
 const showUpdateConfirm = ref(false)
 const showUpdateFeedback = ref(false)
 let updateFeedbackTimer = null
+const updateDebugVersionDraft = ref('')
+const updateDebugBodyDraft = ref('')
 
 const updateNotes = computed(() => {
   const body = props.updateState?.body
@@ -63,6 +73,30 @@ const updateNotes = computed(() => {
 
   return body.trim()
 })
+const updateNotesHtml = computed(() => {
+  const rawHtml = marked.parse(updateNotes.value)
+  return DOMPurify.sanitize(rawHtml, {
+    ALLOWED_TAGS: [
+      'a',
+      'code',
+      'em',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'li',
+      'ol',
+      'p',
+      'pre',
+      'strong',
+      'ul',
+      'br',
+    ],
+    ALLOWED_ATTR: ['href', 'target', 'rel'],
+  })
+})
 
 const updateDebugOptions = computed(() => [
   { value: 'available', label: props.t('updateDebugAvailable') },
@@ -71,6 +105,19 @@ const updateDebugOptions = computed(() => [
   { value: 'up_to_date', label: props.t('updateDebugUpToDate') },
   { value: 'error', label: props.t('updateDebugError') },
 ])
+const updateDebugVersionValue = computed(() => {
+  const version = typeof props.updateState?.latestVersion === 'string' ? props.updateState.latestVersion.trim() : ''
+  return version || '9.9.9-dev'
+})
+const updateDebugBodyValue = computed(() => {
+  const body = typeof props.updateState?.body === 'string' ? props.updateState.body.trim() : ''
+  return body || [
+    '## Debug Update',
+    '- Preview the update badge in development.',
+    '- Validate the confirmation dialog layout and release notes.',
+    '- Exercise downloading and error states without a real release.',
+  ].join('\n')
+})
 
 const updateHeaderMessage = computed(() => {
   if (!props.updateState || props.updateState.status !== 'downloading') {
@@ -128,16 +175,35 @@ async function handleUpdateAction() {
   }
 }
 
-async function selectUpdateDebugStatus(status) {
-  await props.onSetUpdateDebugStatus(status)
-}
-
 async function clearUpdateDebugStatus() {
   await props.onClearUpdateDebugStatus()
 }
 
+async function applyUpdateDebugStatus(status) {
+  await props.onSetUpdateDebugStatusWithOverrides(status, {
+    latestVersion: updateDebugVersionDraft.value.trim() || undefined,
+    body: updateDebugBodyDraft.value.trim() || undefined,
+  })
+}
+
 async function openRepositoryUrl() {
   await openExternalUrl(ABOUT_INFO.repositoryUrl)
+}
+
+async function handleUpdateNotesClick(event) {
+  const target = event.target instanceof Element ? event.target : null
+  const link = target?.closest('a')
+  if (!link) {
+    return
+  }
+
+  const href = link.getAttribute('href')
+  if (!href) {
+    return
+  }
+
+  event.preventDefault()
+  await openExternalUrl(href)
 }
 
 onUnmounted(() => {
@@ -145,6 +211,15 @@ onUnmounted(() => {
     clearTimeout(updateFeedbackTimer)
   }
 })
+
+watch(
+  () => [props.updateDebugStatus, updateDebugVersionValue.value, updateDebugBodyValue.value],
+  ([, version, body]) => {
+    updateDebugVersionDraft.value = version
+    updateDebugBodyDraft.value = body
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -425,13 +500,31 @@ onUnmounted(() => {
             <span class="meta-label">{{ t("updateDebugTitle") }}</span>
             <span class="setting-note">{{ t("updateDebugHint") }}</span>
           </div>
+          <div class="update-debug-fields">
+            <label class="update-debug-field">
+              <span class="meta-label">{{ t("updateDebugVersionLabel") }}</span>
+              <input
+                v-model="updateDebugVersionDraft"
+                type="text"
+                :placeholder="t('updateDebugVersionPlaceholder')"
+              />
+            </label>
+            <label class="update-debug-field">
+              <span class="meta-label">{{ t("updateDebugBodyLabel") }}</span>
+              <textarea
+                v-model="updateDebugBodyDraft"
+                class="update-debug-textarea"
+                :placeholder="t('updateDebugBodyPlaceholder')"
+              ></textarea>
+            </label>
+          </div>
           <div class="setting-actions">
             <button
               v-for="option in updateDebugOptions"
               :key="option.value"
               type="button"
               :class="updateDebugStatus === option.value ? 'primary' : 'ghost'"
-              @click="selectUpdateDebugStatus(option.value)"
+              @click="applyUpdateDebugStatus(option.value)"
             >
               {{ option.label }}
             </button>
@@ -459,7 +552,11 @@ onUnmounted(() => {
               </p>
             </div>
           </header>
-          <pre class="update-confirm-notes">{{ updateNotes }}</pre>
+          <div
+            class="update-confirm-notes"
+            @click="handleUpdateNotesClick"
+            v-html="updateNotesHtml"
+          ></div>
           <footer class="update-confirm-actions">
             <button class="ghost" type="button" @click="closeUpdateConfirm">
               {{ t("ignoreUpdate") }}

@@ -339,11 +339,15 @@ export function useUpdater({ t }) {
   }
 
   async function setUpdateDebugStatus(status) {
+    return setUpdateDebugStatusWithOverrides(status);
+  }
+
+  async function setUpdateDebugStatusWithOverrides(status, overrides = {}) {
     if (!isUpdateDebugEnabled) {
       return updateState.value;
     }
 
-    const payload = buildUpdateDebugPayload(status);
+    const payload = buildUpdateDebugPayload(status, overrides);
     if (!payload) {
       return updateState.value;
     }
@@ -369,6 +373,7 @@ export function useUpdater({ t }) {
     runUpdateCheck,
     runUpdateInstall,
     setUpdateDebugStatus,
+    setUpdateDebugStatusWithOverrides,
     statusMessage,
     updateBusy,
     updateDebugEnabled: isUpdateDebugEnabled,

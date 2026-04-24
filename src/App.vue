@@ -285,6 +285,7 @@ onUnmounted(() => {
       :on-clear-update-debug-status="updaterState.clearUpdateDebugStatus"
       :on-install-update="updaterState.runUpdateInstall"
       :on-set-update-debug-status="updaterState.setUpdateDebugStatus"
+      :on-set-update-debug-status-with-overrides="updaterState.setUpdateDebugStatusWithOverrides"
       :on-update-max-image-bytes-mb="settingsState.setMaxImageBytesMb"
       :open-select-key="settingsState.openSelectKey.value"
       :recording-shortcut="settingsState.recordingShortcut.value"
