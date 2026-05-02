@@ -8,9 +8,9 @@ English version: [README.md](./README.md)。
 
 ## 产品预览
 
-| 主面板（浅色） | 主面板（深色） |  设置 |
+| 主面板（浅色） | 手机发送（深色） |  设置 |
 |---|---|---|
-| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/dark.png) |![Power Paste settings panel](./docs/settings.png)|
+| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/qr.png) |![Power Paste settings panel](./docs/settings.png)|
 
 ## 为什么是 Power Paste
 

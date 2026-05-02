@@ -2,7 +2,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Mutex},
-    time::Instant,
+    time::{Instant, SystemTime},
 };
 
 use anyhow::Result;
@@ -14,6 +14,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 pub(crate) const SETTINGS_FILE: &str = "settings.json";
 pub(crate) const SQLITE_FILE: &str = "clipdesk.db";
 pub(crate) const HISTORY_UPDATED_EVENT: &str = "history-updated";
+pub(crate) const LAN_RECEIVER_STATUS_EVENT: &str = "lan-receiver-status";
 pub(crate) const UPDATE_STATUS_EVENT: &str = "update-status";
 pub(crate) const PANEL_LABEL: &str = "main";
 pub(crate) const DEBUG_CONTEXT_MENU_INIT_SCRIPT: &str = r#"
@@ -141,6 +142,8 @@ pub(crate) struct StoredClipboardItem {
     pub(crate) html_text: Option<String>,
     pub(crate) rtf_text: Option<String>,
     pub(crate) image_png: Option<Vec<u8>>,
+    pub(crate) image_original_bytes: Option<Vec<u8>>,
+    pub(crate) image_original_mime: Option<String>,
     pub(crate) image_width: Option<u32>,
     pub(crate) image_height: Option<u32>,
     pub(crate) source_app: Option<String>,
@@ -152,10 +155,31 @@ pub(crate) struct StoredClipboardItem {
 
 impl StoredClipboardItem {
     pub(crate) fn image_data_url(&self) -> Option<String> {
-        self.image_png
+        self.image_original_bytes
             .as_ref()
             .filter(|bytes| !bytes.is_empty())
-            .map(|bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)))
+            .map(|bytes| {
+                let mime = self
+                    .image_original_mime
+                    .as_deref()
+                    .filter(|value| value.starts_with("image/"))
+                    .unwrap_or("image/png");
+                format!("data:{mime};base64,{}", BASE64.encode(bytes))
+            })
+            .or_else(|| {
+                self.image_png
+                    .as_ref()
+                    .filter(|bytes| !bytes.is_empty())
+                    .map(|bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)))
+            })
+    }
+
+    pub(crate) fn image_display_byte_size(&self) -> Option<usize> {
+        self.image_original_bytes
+            .as_ref()
+            .filter(|bytes| !bytes.is_empty())
+            .or(self.image_png.as_ref().filter(|bytes| !bytes.is_empty()))
+            .map(Vec::len)
     }
 }
 
@@ -220,6 +244,34 @@ pub(crate) struct SharedState {
     pub(crate) update_status: Arc<Mutex<UpdateStatus>>,
     pub(crate) pending_update: Arc<Mutex<Option<Update>>>,
     pub(crate) update_debug_override: Arc<Mutex<Option<UpdateStatus>>>,
+    pub(crate) lan_receiver: Arc<Mutex<Option<LanReceiverSession>>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct LanReceiverSession {
+    pub(crate) url: String,
+    pub(crate) qr_svg: String,
+    pub(crate) expires_at: SystemTime,
+    pub(crate) stop_requested: Arc<AtomicBool>,
+    pub(crate) last_status: Option<LanReceiverStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanReceiverStateDto {
+    pub(crate) running: bool,
+    pub(crate) url: Option<String>,
+    pub(crate) qr_svg: Option<String>,
+    pub(crate) expires_at: Option<u64>,
+    pub(crate) last_status: Option<LanReceiverStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanReceiverStatus {
+    pub(crate) kind: String,
+    pub(crate) message: String,
+    pub(crate) received_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -278,6 +330,8 @@ pub(crate) enum CapturedClipboard {
     },
     Image {
         png_bytes: Vec<u8>,
+        original_bytes: Option<Vec<u8>>,
+        original_mime: Option<String>,
         hash: String,
         preview: String,
         image_width: u32,

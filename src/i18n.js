@@ -256,6 +256,16 @@ Object.assign(messages["zh-CN"], {
   updateDebugError: "\u9519\u8bef",
   updateDebugClear: "\u6062\u590d\u771f\u5b9e\u68c0\u67e5",
   saveSettingsFailed: "\u4fdd\u5b58\u8bbe\u7f6e\u5931\u8d25",
+  lanReceiverTitle: "\u624b\u673a\u53d1\u9001",
+  lanReceiverSubtitle: "\u626b\u7801\u540e\u7528\u624b\u673a\u6d4f\u89c8\u5668\u53d1\u9001\u6587\u672c\u6216\u56fe\u7247",
+  lanReceiverStatus: "\u8fde\u63a5\u72b6\u6001",
+  lanReceiverReady: "\u7b49\u5f85\u624b\u673a\u53d1\u9001",
+  lanReceiverStopped: "\u5df2\u505c\u6b62",
+  lanReceiverReceivedText: "\u5df2\u63a5\u6536\u6587\u672c\u5e76\u5199\u5165\u526a\u8d34\u677f",
+  lanReceiverReceivedImage: "\u5df2\u63a5\u6536\u56fe\u7247\u5e76\u5199\u5165\u526a\u8d34\u677f",
+  lanReceiverProcessingImage: "\u56fe\u7247\u5df2\u4e0a\u4f20\uff0c\u6b63\u5728\u5199\u5165\u684c\u9762\u526a\u8d34\u677f",
+  lanReceiverFailed: "\u63a5\u6536\u5931\u8d25",
+  lanReceiverExpiresIn: "\u4f1a\u8bdd\u5269\u4f59 {time}",
 });
 
 Object.assign(messages["en-US"], {
@@ -300,6 +310,16 @@ Object.assign(messages["en-US"], {
   updateDebugError: "Error",
   updateDebugClear: "Use Real Check",
   saveSettingsFailed: "Failed to save settings",
+  lanReceiverTitle: "Mobile Send",
+  lanReceiverSubtitle: "Scan with a phone browser to send text or an image.",
+  lanReceiverStatus: "Status",
+  lanReceiverReady: "Waiting for mobile input",
+  lanReceiverStopped: "Stopped",
+  lanReceiverReceivedText: "Text received and copied to the clipboard",
+  lanReceiverReceivedImage: "Image received and copied to the clipboard",
+  lanReceiverProcessingImage: "Image uploaded and is being copied to the desktop clipboard",
+  lanReceiverFailed: "Receive failed",
+  lanReceiverExpiresIn: "Session expires in {time}",
 });
 
 export function translate(locale, key, params = {}) {

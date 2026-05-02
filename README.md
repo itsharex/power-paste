@@ -8,9 +8,9 @@ It is not only a utility that gets the job done. Power Paste is also built as a 
 
 ## Product Preview
 
-| Main Panel (Light) | Main Panel (Dark) | Setting |
+| Main Panel (Light) | QR Panel (Dark) | Settings |
 |---|---|---|
-| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/dark.png) |![Power Paste settings panel](./docs/settings.png)|
+| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/qr.png) |![Power Paste settings panel](./docs/settings.png)|
 
 ## Why Power Paste
 
@@ -29,6 +29,7 @@ It is not only a utility that gets the job done. Power Paste is also built as a 
 - Edit plain-text history items in place
 - Restore clipboard content or paste directly back to the previous target app when supported on the current platform
 - Hover image thumbnails to preview a larger image
+- Send text or up to 9 images from a phone browser to the desktop clipboard over the local network by scanning a QR code
 - Settings for language, theme mode, accent color, launch on startup, history size, image size, debug mode, and global shortcut
 - Tray integration, single-instance behavior, startup update checks, and manual update checks from the tray menu
 - Local persistence powered by SQLite
@@ -56,6 +57,15 @@ It is not only a utility that gets the job done. Power Paste is also built as a 
 - Link items: detected from copied URLs and openable in the system default browser
 - Image items: thumbnail preview, large-image hover preview, copy/paste support on supported platforms
 - Mixed items: preserved as combined content where the backend supports mixed replay
+
+### Mobile Send
+
+- Start a temporary local-network receiver from the desktop panel and scan the generated QR code with a phone
+- No mobile app is required; the phone uses a browser page served by the desktop app
+- Send plain text or image-only uploads to the desktop clipboard
+- Select and upload up to 9 images at once; images are submitted one by one and appear as separate history entries
+- Uploaded image entries preserve the original file bytes and MIME type for preview and size display, while the desktop clipboard path still prepares the platform-specific image payload needed for paste compatibility
+- The receiver URL includes a random session token and expires automatically after a short session window or when the receiver is closed
 
 ### Settings
 
@@ -104,6 +114,7 @@ History browsing, clipboard monitoring, search, filtering, pinning, editing, del
 - `tauri-plugin-updater`
 - `tauri-plugin-sql` with SQLite
 - `tauri-plugin-clipboard-next`
+- `tiny_http` for the temporary local-network mobile receiver
 
 ### Windows Integration
 
@@ -175,6 +186,7 @@ Application data is stored in the Tauri app-local-data directory.
 Typical persisted data includes:
 
 - SQLite history database with embedded text, rich text, and image payloads
+- Original image bytes for mobile uploads, so history preview and displayed size can match the uploaded file more closely
 - `settings.json`
 
 The repository no longer relies on a plain `history.json` file for the primary history store; history is backed by SQLite in the current implementation.
@@ -192,6 +204,7 @@ The repository no longer relies on a plain `history.json` file for the primary h
 ├── src-tauri/
 │   ├── src/commands.rs  # Tauri command entrypoints
 │   ├── src/runtime.rs   # Window and runtime behavior
+│   ├── src/lan_receiver.rs # Local-network mobile send receiver
 │   ├── src/update.rs    # App updater flow
 │   ├── src/repository.rs# SQLite history storage
 │   ├── src/storage.rs   # Settings and path storage

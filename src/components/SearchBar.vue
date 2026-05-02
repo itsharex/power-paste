@@ -5,11 +5,13 @@ const props = defineProps({
   clearSearchLabel: { type: String, required: true },
   onClear: { type: Function, required: true },
   onClearQuery: { type: Function, required: true },
+  onOpenLanReceiver: { type: Function, required: true },
   onOpenSettings: { type: Function, required: true },
   onWindowAction: { type: Function, required: true },
   placeholder: { type: String, required: true },
   query: { type: String, required: true },
   settingsLabel: { type: String, required: true },
+  lanReceiverLabel: { type: String, required: true },
 })
 
 const emit = defineEmits(['update:query'])
@@ -47,6 +49,14 @@ function handleInput(event) {
     </div>
 
     <div class="titlebar-actions searchbar-actions action-cluster">
+      <button class="toolbar-icon-button" type="button" :title="props.lanReceiverLabel" :aria-label="props.lanReceiverLabel" @click="props.onOpenLanReceiver">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M4 4h6v6H4V4Zm2 2v2h2V6H6Zm8-2h6v6h-6V4Zm2 2v2h2V6h-2ZM4 14h6v6H4v-6Zm2 2v2h2v-2H6Zm9-2h2v2h-2v-2Zm2 2h3v2h-3v-2Zm-4 2h2v2h-2v-2Zm2 2h5v2h-5v-2Zm5-8v2h-2v-2h2Zm-6 0h2v2h-2v-2Z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
       <button class="toolbar-icon-button" type="button" :title="props.settingsLabel" :aria-label="props.settingsLabel" @click="props.onOpenSettings">
         <svg viewBox="0 0 1024 1024" aria-hidden="true">
           <path

@@ -7,14 +7,17 @@ import FilterTabs from "./components/FilterTabs.vue";
 import HistoryList from "./components/HistoryList.vue";
 import SettingsModal from "./components/SettingsModal.vue";
 import EditModal from "./components/EditModal.vue";
+import LanReceiverModal from "./components/LanReceiverModal.vue";
 import { useSettings } from "./composables/useSettings";
 import { useUpdater } from "./composables/useUpdater";
 import { useHistory } from "./composables/useHistory";
 import { useTheme } from "./composables/useTheme";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
+import { useLanReceiver } from "./composables/useLanReceiver";
 
 const settingsState = useSettings();
 const updaterState = useUpdater({ t: settingsState.t });
+const lanReceiverState = useLanReceiver({ t: settingsState.t });
 const historyState = useHistory({
   platformCapabilities: settingsState.platformCapabilities,
   settings: settingsState.settings,
@@ -215,10 +218,12 @@ onUnmounted(() => {
             historyState.refreshHistory();
           }"
           :on-open-settings="() => { settingsState.showSettings.value = true; }"
+          :on-open-lan-receiver="lanReceiverState.openLanReceiver"
           :on-window-action="handleWindowAction"
           :placeholder="settingsState.t('searchPlaceholder')"
           :query="historyState.query.value"
           :settings-label="settingsState.t('settingsTitle')"
+          :lan-receiver-label="settingsState.t('lanReceiverTitle')"
           @update:query="
             historyState.query.value = $event;
             historyState.refreshHistory();
@@ -320,6 +325,18 @@ onUnmounted(() => {
       "
       @save="historyState.saveEditedItem"
       @update:draft="historyState.editDraft.value = $event"
+    />
+
+    <LanReceiverModal
+      :busy="lanReceiverState.lanReceiverBusy.value"
+      :error="lanReceiverState.lanReceiverError.value"
+      :expires-in-label="lanReceiverState.expiresInLabel.value"
+      :on-close="lanReceiverState.closeLanReceiver"
+      :show="lanReceiverState.showLanReceiver.value"
+      :state="lanReceiverState.lanReceiverState.value"
+      :status-label="lanReceiverState.statusLabel.value"
+      :t="settingsState.t"
+      @close="lanReceiverState.showLanReceiver.value = false"
     />
   </div>
 </template>

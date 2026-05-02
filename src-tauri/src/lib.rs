@@ -19,6 +19,7 @@ mod clipboard;
 mod clipboard_html;
 mod commands;
 mod history;
+mod lan_receiver;
 mod models;
 mod paste_target;
 mod ports;
@@ -32,8 +33,9 @@ mod usecases;
 
 // Tauri command entrypoints stay thin and delegate to feature modules.
 use commands::{
-    clear_history, copy_item, delete_item, get_history, get_platform_capabilities, get_settings,
-    open_external_url, paste_item, toggle_favorite, toggle_pin, update_settings, update_text_item,
+    clear_history, copy_item, delete_item, get_history, get_lan_receiver_state,
+    get_platform_capabilities, get_settings, open_external_url, paste_item, start_lan_receiver,
+    stop_lan_receiver, toggle_favorite, toggle_pin, update_settings, update_text_item,
 };
 use models::{
     MonitorState, SharedState, StoragePaths, UpdateStatus, DEBUG_CONTEXT_MENU_INIT_SCRIPT,
@@ -162,6 +164,7 @@ pub fn run() {
                 ))),
                 pending_update: Arc::new(Mutex::new(None)),
                 update_debug_override: Arc::new(Mutex::new(None)),
+                lan_receiver: Arc::new(Mutex::new(None)),
             });
 
             let launch_on_startup = settings.lock().unwrap().launch_on_startup;
@@ -202,6 +205,9 @@ pub fn run() {
             copy_item,
             paste_item,
             open_external_url,
+            start_lan_receiver,
+            stop_lan_receiver,
+            get_lan_receiver_state,
             update::get_update_state,
             update::check_for_updates,
             update::install_update,

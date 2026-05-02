@@ -6,7 +6,10 @@ use crate::{
     clipboard::platform_capabilities,
     history::history_to_dto,
     history::normalize_link_url,
-    models::{AppError, AppSettings, ClipboardItemDto, PlatformCapabilities, SharedState},
+    models::{
+        AppError, AppSettings, ClipboardItemDto, LanReceiverStateDto, PlatformCapabilities,
+        SharedState,
+    },
     usecases::{execute_copy_item, execute_paste_item, execute_update_settings},
 };
 
@@ -170,6 +173,32 @@ pub(crate) fn open_external_url(url: String) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+// 启动局域网接收服务，返回手机扫码访问地址、二维码和会话过期时间。
+#[tauri::command]
+pub(crate) fn start_lan_receiver(
+    app: AppHandle,
+    state: State<'_, Arc<SharedState>>,
+) -> Result<LanReceiverStateDto, AppError> {
+    crate::lan_receiver::start(app, state.inner().clone())
+}
+
+// 停止当前局域网接收服务，使已生成二维码和令牌立即失效。
+#[tauri::command]
+pub(crate) fn stop_lan_receiver(
+    app: AppHandle,
+    state: State<'_, Arc<SharedState>>,
+) -> Result<LanReceiverStateDto, AppError> {
+    crate::lan_receiver::stop(app, state.inner().clone())
+}
+
+// 获取当前局域网接收服务状态，用于前端恢复二维码弹窗。
+#[tauri::command]
+pub(crate) fn get_lan_receiver_state(
+    state: State<'_, Arc<SharedState>>,
+) -> Result<LanReceiverStateDto, AppError> {
+    Ok(crate::lan_receiver::get_state(state.inner()))
 }
 
 pub(crate) fn load_item_by_id(

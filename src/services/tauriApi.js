@@ -14,6 +14,10 @@ export function onUpdateStatus(handler) {
   return listen("update-status", handler);
 }
 
+export function onLanReceiverStatus(handler) {
+  return listen("lan-receiver-status", handler);
+}
+
 export function getHistory(payload) {
   return invoke("get_history", payload);
 }
@@ -76,4 +80,16 @@ export function pasteItem(id) {
 
 export function openExternalUrl(url) {
   return invoke("open_external_url", { url });
+}
+
+export function startLanReceiver() {
+  return invoke("start_lan_receiver");
+}
+
+export function stopLanReceiver() {
+  return invoke("stop_lan_receiver");
+}
+
+export function getLanReceiverState() {
+  return invoke("get_lan_receiver_state");
 }

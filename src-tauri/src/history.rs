@@ -423,6 +423,8 @@ pub(crate) fn build_captured_clipboard(
                     height.unwrap_or_default()
                 ),
                 png_bytes: png_bytes.clone(),
+                original_bytes: None,
+                original_mime: None,
                 image_width: width.unwrap_or_default(),
                 image_height: height.unwrap_or_default(),
             }));
@@ -489,6 +491,8 @@ pub(crate) fn build_captured_clipboard(
                 height.unwrap_or_default()
             ),
             png_bytes,
+            original_bytes: None,
+            original_mime: None,
             image_width: width.unwrap_or_default(),
             image_height: height.unwrap_or_default(),
         }));
@@ -553,7 +557,7 @@ pub(crate) fn history_item_to_dto(item: &StoredClipboardItem) -> ClipboardItemDt
         preview: item.preview.clone(),
         full_text: item.full_text.clone(),
         image_data_url,
-        image_byte_size: item.image_png.as_ref().map(|bytes| bytes.len()),
+        image_byte_size: item.image_display_byte_size(),
         image_width: item.image_width,
         image_height: item.image_height,
         source_app: item.source_app.clone(),
@@ -583,7 +587,9 @@ fn local_image_path_from_src(src: &str) -> Option<std::path::PathBuf> {
 }
 
 fn file_url_to_path(src: &str) -> Option<std::path::PathBuf> {
-    let raw = src.strip_prefix("file://").or_else(|| src.strip_prefix("FILE://"))?;
+    let raw = src
+        .strip_prefix("file://")
+        .or_else(|| src.strip_prefix("FILE://"))?;
     let normalized = raw.replace("%20", " ");
 
     #[cfg(windows)]
@@ -709,7 +715,10 @@ mod tests {
 
         assert!(matches!(
             capture,
-            CapturedClipboard::Mixed { png_bytes: None, .. }
+            CapturedClipboard::Mixed {
+                png_bytes: None,
+                ..
+            }
         ));
     }
 
@@ -744,6 +753,8 @@ mod tests {
             html_text: Some("<p>hello</p><img src=\"data:image/png;base64,abc\" />".into()),
             rtf_text: None,
             image_png: None,
+            image_original_bytes: None,
+            image_original_mime: None,
             image_width: None,
             image_height: None,
             source_app: None,
@@ -763,7 +774,8 @@ mod tests {
 
     #[test]
     fn dto_reads_local_html_image_file_into_data_url() {
-        let root = std::env::temp_dir().join(format!("clipdesk-history-test-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("clipdesk-history-test-{}", uuid::Uuid::new_v4()));
         std_fs::create_dir_all(&root).expect("create temp dir");
         let image_path = root.join("preview.png");
         let mut png_bytes = Vec::new();
@@ -779,9 +791,14 @@ mod tests {
             pinned_at: None,
             preview: "hello".into(),
             full_text: Some("hello".into()),
-            html_text: Some(format!("<p>hello</p><img src=\"{}\" />", image_path.display())),
+            html_text: Some(format!(
+                "<p>hello</p><img src=\"{}\" />",
+                image_path.display()
+            )),
             rtf_text: None,
             image_png: None,
+            image_original_bytes: None,
+            image_original_mime: None,
             image_width: None,
             image_height: None,
             source_app: None,

@@ -13,6 +13,22 @@ pub(crate) struct SqliteHistoryStore {
     connection: Connection,
 }
 
+fn ensure_column(connection: &Connection, name: &str, sql_type: &str) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(clipboard_items)")?;
+    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for column in columns {
+        if column? == name {
+            return Ok(());
+        }
+    }
+
+    connection.execute(
+        &format!("ALTER TABLE clipboard_items ADD COLUMN {name} {sql_type}"),
+        [],
+    )?;
+    Ok(())
+}
+
 impl SqliteHistoryStore {
     pub(crate) fn new(paths: &StoragePaths) -> Result<Self> {
         let connection = Connection::open(&paths.db_path)
@@ -38,6 +54,8 @@ impl SqliteHistoryStore {
               html_text TEXT,
               rtf_text TEXT,
               image_png BLOB,
+              image_original_bytes BLOB,
+              image_original_mime TEXT,
               image_width INTEGER,
               image_height INTEGER,
               source_app TEXT,
@@ -55,6 +73,8 @@ impl SqliteHistoryStore {
               ON clipboard_items (kind, full_text);
             "#,
         )?;
+        ensure_column(&self.connection, "image_original_bytes", "BLOB")?;
+        ensure_column(&self.connection, "image_original_mime", "TEXT")?;
         Ok(())
     }
 
@@ -80,7 +100,8 @@ impl SqliteHistoryStore {
         let sql = if query.is_empty() {
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                   image_png, image_width, image_height, source_app, source_icon_data_url,
+                   image_png, image_original_bytes, image_original_mime,
+                   image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             ORDER BY pinned DESC, pinned_at DESC, favorite DESC, created_at DESC
@@ -89,7 +110,8 @@ impl SqliteHistoryStore {
         } else {
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                   image_png, image_width, image_height, source_app, source_icon_data_url,
+                   image_png, image_original_bytes, image_original_mime,
+                   image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             WHERE lower(
@@ -115,7 +137,8 @@ impl SqliteHistoryStore {
         let mut statement = self.connection.prepare(
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                   image_png, image_width, image_height, source_app, source_icon_data_url,
+                   image_png, image_original_bytes, image_original_mime,
+                   image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             WHERE id = ?1
@@ -142,7 +165,8 @@ impl SqliteHistoryStore {
             tx.prepare(
                 r#"
                 SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                       image_png, image_width, image_height, source_app, source_icon_data_url,
+                       image_png, image_original_bytes, image_original_mime,
+                       image_width, image_height, source_app, source_icon_data_url,
                        hash, pinned, favorite
                 FROM clipboard_items
                 WHERE hash = ?1 OR (kind = 'text' AND full_text = ?2)
@@ -155,7 +179,8 @@ impl SqliteHistoryStore {
             tx.prepare(
                 r#"
                 SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                       image_png, image_width, image_height, source_app, source_icon_data_url,
+                       image_png, image_original_bytes, image_original_mime,
+                       image_width, image_height, source_app, source_icon_data_url,
                        hash, pinned, favorite
                 FROM clipboard_items
                 WHERE hash = ?1
@@ -191,13 +216,15 @@ impl SqliteHistoryStore {
                         html_text = ?7,
                         rtf_text = ?8,
                         image_png = ?9,
-                        image_width = ?10,
-                        image_height = ?11,
-                        source_app = ?12,
-                        source_icon_data_url = ?13,
-                        hash = ?14,
-                        pinned = ?15,
-                        favorite = ?16
+                        image_original_bytes = ?10,
+                        image_original_mime = ?11,
+                        image_width = ?12,
+                        image_height = ?13,
+                        source_app = ?14,
+                        source_icon_data_url = ?15,
+                        hash = ?16,
+                        pinned = ?17,
+                        favorite = ?18
                     WHERE id = ?1
                     "#,
                     params![
@@ -210,6 +237,8 @@ impl SqliteHistoryStore {
                         next.html_text,
                         next.rtf_text,
                         next.image_png,
+                        next.image_original_bytes,
+                        next.image_original_mime,
                         next.image_width,
                         next.image_height,
                         next.source_app,
@@ -229,10 +258,11 @@ impl SqliteHistoryStore {
                     r#"
                     INSERT INTO clipboard_items (
                       id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                      image_png, image_width, image_height, source_app, source_icon_data_url,
+                      image_png, image_original_bytes, image_original_mime,
+                      image_width, image_height, source_app, source_icon_data_url,
                       hash, pinned, favorite
                     ) VALUES (
-                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
                     )
                     "#,
                     params![
@@ -245,6 +275,8 @@ impl SqliteHistoryStore {
                         item.html_text,
                         item.rtf_text,
                         item.image_png,
+                        item.image_original_bytes,
+                        item.image_original_mime,
                         item.image_width,
                         item.image_height,
                         item.source_app,
@@ -340,13 +372,15 @@ impl SqliteHistoryStore {
             html_text: row.get(6)?,
             rtf_text: row.get(7)?,
             image_png: row.get(8)?,
-            image_width: row.get(9)?,
-            image_height: row.get(10)?,
-            source_app: row.get(11)?,
-            source_icon_data_url: row.get(12)?,
-            hash: row.get(13)?,
-            pinned: row.get::<_, i64>(14)? != 0,
-            favorite: row.get::<_, i64>(15)? != 0,
+            image_original_bytes: row.get(9)?,
+            image_original_mime: row.get(10)?,
+            image_width: row.get(11)?,
+            image_height: row.get(12)?,
+            source_app: row.get(13)?,
+            source_icon_data_url: row.get(14)?,
+            hash: row.get(15)?,
+            pinned: row.get::<_, i64>(16)? != 0,
+            favorite: row.get::<_, i64>(17)? != 0,
         };
 
         let (full_text, html_text) =
@@ -410,6 +444,8 @@ fn apply_capture(
             item.html_text = html_text;
             item.rtf_text = rtf_text;
             item.image_png = None;
+            item.image_original_bytes = None;
+            item.image_original_mime = None;
             item.image_width = None;
             item.image_height = None;
             item.hash = hash;
@@ -426,12 +462,16 @@ fn apply_capture(
             item.html_text = html_text;
             item.rtf_text = rtf_text;
             item.image_png = None;
+            item.image_original_bytes = None;
+            item.image_original_mime = None;
             item.image_width = None;
             item.image_height = None;
             item.hash = hash;
         }
         CapturedClipboard::Image {
             png_bytes,
+            original_bytes,
+            original_mime,
             hash,
             preview,
             image_width,
@@ -443,6 +483,8 @@ fn apply_capture(
             item.html_text = None;
             item.rtf_text = None;
             item.image_png = Some(png_bytes);
+            item.image_original_bytes = original_bytes;
+            item.image_original_mime = original_mime;
             item.image_width = Some(image_width);
             item.image_height = Some(image_height);
             item.hash = hash;
@@ -462,6 +504,8 @@ fn apply_capture(
             item.html_text = html_text;
             item.rtf_text = rtf_text;
             item.image_png = png_bytes;
+            item.image_original_bytes = None;
+            item.image_original_mime = None;
             item.image_width = (image_width > 0).then_some(image_width);
             item.image_height = (image_height > 0).then_some(image_height);
             item.hash = hash;
@@ -487,6 +531,8 @@ fn build_new_item(
         html_text: None,
         rtf_text: None,
         image_png: None,
+        image_original_bytes: None,
+        image_original_mime: None,
         image_width: None,
         image_height: None,
         source_app,
@@ -711,7 +757,11 @@ mod tests {
         assert_eq!(item.kind, "mixed");
         assert_eq!(item.full_text.as_deref(), Some("hello"));
         assert!(item.image_png.is_none());
-        assert!(item.html_text.as_deref().unwrap_or_default().contains("<img"));
+        assert!(item
+            .html_text
+            .as_deref()
+            .unwrap_or_default()
+            .contains("<img"));
 
         let _ = fs::remove_dir_all(paths.db_path.parent().unwrap_or(paths.db_path.as_path()));
     }
@@ -743,7 +793,11 @@ mod tests {
 
         let item = store.list_all().expect("all").remove(0);
         assert_eq!(item.kind, "mixed");
-        assert!(item.html_text.as_deref().unwrap_or_default().contains("<img"));
+        assert!(item
+            .html_text
+            .as_deref()
+            .unwrap_or_default()
+            .contains("<img"));
 
         let _ = fs::remove_dir_all(paths.db_path.parent().unwrap_or(paths.db_path.as_path()));
     }
