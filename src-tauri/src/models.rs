@@ -80,6 +80,7 @@ pub(crate) struct AppSettings {
     pub(crate) launch_on_startup: bool,
     pub(crate) polling_interval_ms: u64,
     pub(crate) max_history_items: usize,
+    pub(crate) max_history_days: u64,
     pub(crate) max_image_bytes: usize,
     pub(crate) lan_transfer_download_dir: Option<String>,
     pub(crate) global_shortcut: String,
@@ -102,6 +103,7 @@ impl Default for AppSettings {
             launch_on_startup: false,
             polling_interval_ms: 500,
             max_history_items: 200,
+            max_history_days: 30,
             max_image_bytes: 6_000_000,
             lan_transfer_download_dir: None,
             global_shortcut: "Ctrl+Shift+V".into(),
@@ -121,6 +123,10 @@ impl Default for AppSettings {
 impl AppSettings {
     pub(crate) fn normalized(mut self) -> Self {
         self.global_shortcut = normalize_shortcut(&self.global_shortcut);
+        if self.max_history_days == 0 {
+            self.max_history_days = Self::default().max_history_days;
+        }
+        self.max_history_days = self.max_history_days.min(3650);
         self.lan_transfer_download_dir = self
             .lan_transfer_download_dir
             .map(|value| value.trim().to_string())

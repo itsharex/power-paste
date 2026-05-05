@@ -58,6 +58,10 @@ export function updateSettings(payload) {
   return invoke("update_settings", { payload });
 }
 
+export function resetSettings() {
+  return invoke("reset_settings");
+}
+
 export function togglePin(id) {
   return invoke("toggle_pin", { id });
 }

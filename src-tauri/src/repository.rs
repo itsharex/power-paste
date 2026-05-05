@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
@@ -289,7 +289,7 @@ impl SqliteHistoryStore {
                         next.favorite as i64
                     ],
                 )?;
-                trim_history(&tx, settings.max_history_items)?;
+                trim_history(&tx, settings)?;
                 let item = next;
                 tx.commit()?;
                 Ok(UpsertedCapture {
@@ -332,7 +332,7 @@ impl SqliteHistoryStore {
                         item.favorite as i64
                     ],
                 )?;
-                trim_history(&tx, settings.max_history_items)?;
+                trim_history(&tx, settings)?;
                 let item = item;
                 tx.commit()?;
                 Ok(UpsertedCapture {
@@ -421,6 +421,13 @@ impl SqliteHistoryStore {
         self.connection
             .execute("DELETE FROM clipboard_items WHERE pinned = 0", [])?;
         Ok(())
+    }
+
+    pub(crate) fn trim_by_settings(&mut self, settings: &AppSettings) -> Result<usize> {
+        let tx = self.connection.transaction()?;
+        let removed = trim_history(&tx, settings)?;
+        tx.commit()?;
+        Ok(removed)
     }
 
     fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredClipboardItem> {
@@ -617,11 +624,27 @@ fn build_new_item(
     apply_capture(item, capture, now, source_app, source_icon_data_url)
 }
 
-fn trim_history(tx: &rusqlite::Transaction<'_>, max_history_items: usize) -> Result<()> {
+fn trim_history(tx: &rusqlite::Transaction<'_>, settings: &AppSettings) -> Result<usize> {
+    let mut removed = 0;
+    if settings.max_history_days > 0 {
+        let cutoff = Utc::now()
+            .checked_sub_signed(Duration::days(settings.max_history_days as i64))
+            .unwrap_or_else(Utc::now)
+            .to_rfc3339();
+        removed += tx.execute(
+            r#"
+            DELETE FROM clipboard_items
+            WHERE pinned = 0
+              AND created_at < ?1
+            "#,
+            params![cutoff],
+        )?;
+    }
+
     let total: i64 = tx.query_row("SELECT COUNT(*) FROM clipboard_items", [], |row| row.get(0))?;
-    let overflow = total.saturating_sub(max_history_items as i64);
+    let overflow = total.saturating_sub(settings.max_history_items as i64);
     if overflow > 0 {
-        tx.execute(
+        removed += tx.execute(
             r#"
             DELETE FROM clipboard_items
             WHERE id IN (
@@ -635,7 +658,7 @@ fn trim_history(tx: &rusqlite::Transaction<'_>, max_history_items: usize) -> Res
             params![overflow],
         )?;
     }
-    Ok(())
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -645,6 +668,7 @@ mod tests {
         models::{AppSettings, CapturedClipboard, StoragePaths},
         storage::sha256_hex,
     };
+    use chrono::{Duration, Utc};
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
 
@@ -723,6 +747,38 @@ mod tests {
         assert!(items
             .iter()
             .all(|item| item.full_text.as_deref() != Some("alpha")));
+
+        let _ = fs::remove_dir_all(paths.db_path.parent().unwrap_or(paths.db_path.as_path()));
+    }
+
+    #[test]
+    fn evicts_unpinned_items_older_than_retention_days() {
+        let paths = test_paths();
+        let mut store = SqliteHistoryStore::new(&paths).expect("store");
+        let mut settings = AppSettings::default();
+        settings.max_history_days = 30;
+
+        store
+            .upsert_capture(text_capture("old"), None, &settings)
+            .expect("old");
+        store
+            .upsert_capture(text_capture("new"), None, &settings)
+            .expect("new");
+        let old_created_at = (Utc::now() - Duration::days(31)).to_rfc3339();
+        store
+            .connection
+            .execute(
+                "UPDATE clipboard_items SET created_at = ?1 WHERE full_text = 'old'",
+                [old_created_at],
+            )
+            .expect("age old item");
+
+        let removed = store.trim_by_settings(&settings).expect("trim");
+        let items = store.list_all().expect("all");
+
+        assert_eq!(removed, 1);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].full_text.as_deref(), Some("new"));
 
         let _ = fs::remove_dir_all(paths.db_path.parent().unwrap_or(paths.db_path.as_path()));
     }

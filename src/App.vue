@@ -10,9 +10,9 @@ import {
 import SearchBar from "./components/SearchBar.vue";
 import FilterTabs from "./components/FilterTabs.vue";
 import HistoryList from "./components/HistoryList.vue";
-import SettingsModal from "./components/SettingsModal.vue";
 import EditModal from "./components/EditModal.vue";
 import LanTransferView from "./views/LanTransferView.vue";
+import SettingsView from "./views/SettingsView.vue";
 import { useSettings } from "./composables/useSettings";
 import { useUpdater } from "./composables/useUpdater";
 import { playCopySoundFallback, useHistory } from "./composables/useHistory";
@@ -46,7 +46,8 @@ const { handleWindowAction } = useKeyboardShortcuts({
     setSelectedId: historyState.setSelectedId,
     settings: settingsState.settings,
     showEditModal: historyState.showEditModal,
-    showSettings: settingsState.showSettings,
+    isSettingsRoute: computed(() => route.name === "settings"),
+    leaveSettings: () => router.push({ name: "home" }),
     clearEditing: () => {
         historyState.showEditModal.value = false;
         historyState.editingItemId.value = null;
@@ -63,6 +64,7 @@ let unlistenUpdate = null;
 let unlistenWindowFocus = null;
 const startupBusy = ref(false);
 const isLanTransferRoute = computed(() => route.name === "lanTransfer");
+const isSettingsRoute = computed(() => route.name === "settings");
 
 function cleanupListeners() {
     unlistenHistory?.();
@@ -136,7 +138,15 @@ async function openLanTransferRoute() {
     await router.push({ name: "lanTransfer" });
 }
 
+async function openSettingsRoute() {
+    await router.push({ name: "settings" });
+}
+
 async function leaveLanTransferRoute() {
+    await router.push({ name: "home" });
+}
+
+async function leaveSettingsRoute() {
     await router.push({ name: "home" });
 }
 </script>
@@ -281,6 +291,53 @@ async function leaveLanTransferRoute() {
                 />
             </template>
 
+            <template v-else-if="isSettingsRoute">
+                <SettingsView
+                    :app-version="settingsState.appVersion.value"
+                    :apply-setting-patch="settingsState.applySettingPatch"
+                    :begin-shortcut-recording="settingsState.beginShortcutRecording"
+                    :close-select="settingsState.closeSelect"
+                    :current-accent-color-options="
+                        settingsState.currentAccentColorOptions.value
+                    "
+                    :current-locale="settingsState.currentLocale.value"
+                    :current-theme-mode-options="
+                        settingsState.currentThemeModeOptions.value
+                    "
+                    :can-toggle-launch-on-startup="
+                        settingsState.canToggleLaunchOnStartup.value
+                    "
+                    :end-shortcut-recording="settingsState.endShortcutRecording"
+                    :locale-options="settingsState.localeOptions"
+                    :on-back="leaveSettingsRoute"
+                    :on-check-updates="updaterState.runUpdateCheck"
+                    :on-clear-update-debug-status="updaterState.clearUpdateDebugStatus"
+                    :on-install-update="updaterState.runUpdateInstall"
+                    :on-set-update-debug-status-with-overrides="
+                        updaterState.setUpdateDebugStatusWithOverrides
+                    "
+                    :open-select-key="settingsState.openSelectKey.value"
+                    :pending-setting-key="settingsState.pendingSettingKey.value"
+                    :recording-shortcut="settingsState.recordingShortcut.value"
+                    :reset-settings="settingsState.resetVisibleSettings"
+                    :saving-settings="settingsState.savingSettings.value"
+                    :segmented-toggle-style="settingsState.segmentedToggleStyle"
+                    :selected-option-label="settingsState.selectedOptionLabel"
+                    :settings="settingsState.settings"
+                    :settings-save-error="settingsState.settingsSaveError.value"
+                    :show-update-action="updaterState.canInstallUpdate.value"
+                    :platform-capabilities="settingsState.platformCapabilities.value"
+                    :t="settingsState.t"
+                    :toggle-select="settingsState.toggleSelect"
+                    :update-debug-enabled="updaterState.updateDebugEnabled"
+                    :update-debug-status="updaterState.updateDebugStatus.value"
+                    :update-busy="updaterState.updateBusy.value"
+                    :update-label="settingsState.t('downloadAndInstall')"
+                    :update-status-message="updaterState.statusMessage.value"
+                    :update-state="updaterState.updateState.value"
+                />
+            </template>
+
             <template v-else>
                 <SearchBar
                     :action-feedback="historyState.actionFeedback.value"
@@ -295,7 +352,7 @@ async function leaveLanTransferRoute() {
                     "
                     :on-open-settings="
                         () => {
-                            settingsState.showSettings.value = true;
+                            openSettingsRoute();
                         }
                     "
                     :on-open-lan-receiver="openLanTransferRoute"
@@ -364,52 +421,6 @@ async function leaveLanTransferRoute() {
                 </div>
             </template>
         </div>
-
-        <SettingsModal
-            v-if="!settingsState.startupError.value"
-            :app-version="settingsState.appVersion.value"
-            :begin-shortcut-recording="settingsState.beginShortcutRecording"
-            :close-select="settingsState.closeSelect"
-            :current-accent-color-options="
-                settingsState.currentAccentColorOptions.value
-            "
-            :current-locale="settingsState.currentLocale.value"
-            :current-theme-mode-options="
-                settingsState.currentThemeModeOptions.value
-            "
-            :can-toggle-launch-on-startup="
-                settingsState.canToggleLaunchOnStartup.value
-            "
-            :end-shortcut-recording="settingsState.endShortcutRecording"
-            :locale-options="settingsState.localeOptions"
-            :on-check-updates="updaterState.runUpdateCheck"
-            :on-clear-update-debug-status="updaterState.clearUpdateDebugStatus"
-            :on-install-update="updaterState.runUpdateInstall"
-            :on-set-update-debug-status="updaterState.setUpdateDebugStatus"
-            :on-set-update-debug-status-with-overrides="
-                updaterState.setUpdateDebugStatusWithOverrides
-            "
-            :open-select-key="settingsState.openSelectKey.value"
-            :recording-shortcut="settingsState.recordingShortcut.value"
-            :save-settings="settingsState.saveSettings"
-            :saving-settings="settingsState.savingSettings.value"
-            :show-update-action="updaterState.canInstallUpdate.value"
-            :segmented-toggle-style="settingsState.segmentedToggleStyle"
-            :selected-option-label="settingsState.selectedOptionLabel"
-            :settings="settingsState.settings"
-            :settings-save-error="settingsState.settingsSaveError.value"
-            :show-settings="settingsState.showSettings.value"
-            :platform-capabilities="settingsState.platformCapabilities.value"
-            :t="settingsState.t"
-            :toggle-select="settingsState.toggleSelect"
-            :update-debug-enabled="updaterState.updateDebugEnabled"
-            :update-debug-status="updaterState.updateDebugStatus.value"
-            :update-busy="updaterState.updateBusy.value"
-            :update-label="settingsState.t('downloadAndInstall')"
-            :update-status-message="updaterState.statusMessage.value"
-            :update-state="updaterState.updateState.value"
-            @close="settingsState.showSettings.value = false"
-        />
 
         <EditModal
             v-if="!settingsState.startupError.value"

@@ -5,9 +5,10 @@ import {
   getDefaultDownloadDir,
   getPlatformCapabilities as fetchPlatformCapabilities,
   getSettings as fetchSettings,
+  resetSettings as resetPersistedSettings,
   updateSettings as persistSettings,
 } from "../services/tauriApi";
-import { normalizeShortcutKey, normalizeShortcutValue } from "../utils/shortcut";
+import { normalizeShortcutValue } from "../utils/shortcut";
 
 function detectClientPlatform() {
   const userAgent = window.navigator.userAgent.toLowerCase();
@@ -85,6 +86,7 @@ export function useSettings() {
     launchOnStartup: false,
     pollingIntervalMs: 500,
     maxHistoryItems: 200,
+    maxHistoryDays: 30,
     maxImageBytes: 6_000_000,
     lanTransferDownloadDir: "",
     globalShortcut: "Ctrl+Shift+V",
@@ -94,10 +96,10 @@ export function useSettings() {
     themeMode: "system",
     accentColor: "amber",
   });
-  const showSettings = ref(false);
   const recordingShortcut = ref(false);
   const openSelectKey = ref(null);
   const savingSettings = ref(false);
+  const pendingSettingKey = ref("");
   const settingsSaveError = ref("");
   const startupError = ref("");
   const appVersion = ref("");
@@ -113,29 +115,9 @@ export function useSettings() {
   const currentAccentColorOptions = computed(
     () => accentColorOptions[currentLocale.value] || accentColorOptions["en-US"],
   );
-  const languageToggleIndex = computed(() =>
-    Math.max(localeOptions.findIndex((option) => option.value === settings.locale), 0),
-  );
-  const debugToggleIndex = computed(() => (settings.debugEnabled ? 0 : 1));
-  const soundToggleIndex = computed(() => (settings.soundEnabled ? 0 : 1));
-  const launchToggleIndex = computed(() => (settings.launchOnStartup ? 0 : 1));
   const canToggleLaunchOnStartup = computed(
     () => platformCapabilities.value.supportsLaunchOnStartup,
   );
-  const maxImageBytesMb = computed({
-    get: () => Number((settings.maxImageBytes / 1_000_000).toFixed(1)),
-    set: (value) => {
-      const next = Number(value);
-      settings.maxImageBytes = Math.max(
-        1_000_000,
-        Math.round((Number.isFinite(next) ? next : 1) * 1_000_000),
-      );
-    },
-  });
-
-  function setMaxImageBytesMb(value) {
-    maxImageBytesMb.value = value;
-  }
 
   function t(key, params) {
     return translate(currentLocale.value, key, params);
@@ -158,13 +140,6 @@ export function useSettings() {
 
   function closeSelect() {
     openSelectKey.value = null;
-  }
-
-  function chooseSelectOption(key, field, value) {
-    settings[field] = value;
-    if (key === "themeMode" || key === "accentColor") {
-      closeSelect();
-    }
   }
 
   function formatErrorMessage(error, fallbackKey = "saveSettingsFailed") {
@@ -226,48 +201,6 @@ export function useSettings() {
     recordingShortcut.value = false;
   }
 
-  function clearGlobalShortcut() {
-    settings.globalShortcut = "";
-    endShortcutRecording();
-  }
-
-  function handleShortcutKeydown(event) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (event.key === "Tab" || event.key === "Escape") {
-      endShortcutRecording();
-      return;
-    }
-
-    if (event.key === "Backspace" || event.key === "Delete") {
-      clearGlobalShortcut();
-      return;
-    }
-
-    const parts = [];
-    if (event.ctrlKey) {
-      parts.push("Ctrl");
-    }
-    if (event.altKey) {
-      parts.push("Alt");
-    }
-    if (event.shiftKey) {
-      parts.push("Shift");
-    }
-    if (event.metaKey) {
-      parts.push(detectedPlatform === "macos" ? "Command" : "Super");
-    }
-
-    const mainKey = normalizeShortcutKey(event.key, detectedPlatform);
-    if (!mainKey || ["Ctrl", "Alt", "Shift", "Command", "Super"].includes(mainKey)) {
-      return;
-    }
-
-    settings.globalShortcut = [...parts, mainKey].join("+");
-    endShortcutRecording();
-  }
-
   async function loadAppVersion() {
     appVersion.value = (await getAppVersion()) || "";
   }
@@ -278,6 +211,10 @@ export function useSettings() {
 
   async function refreshSettings() {
     const next = await fetchSettings();
+    await syncSettings(next);
+  }
+
+  async function syncSettings(next) {
     const defaultDownloadDir = await getDefaultDownloadDir();
     Object.assign(settings, {
       ...next,
@@ -289,46 +226,73 @@ export function useSettings() {
     }
   }
 
-  async function saveSettings(nextSettings = settings, onSaved) {
-    if (savingSettings.value) {
-      return;
-    }
-
-    const sourceSettings =
-      typeof nextSettings === "function" ? settings : nextSettings;
-    const savedCallback = typeof nextSettings === "function" ? nextSettings : onSaved;
-    const payload = {
+  function buildSettingsPayload(sourceSettings = settings) {
+    return {
       ...sourceSettings,
       globalShortcut: normalizeShortcutValue(sourceSettings.globalShortcut, detectedPlatform),
       launchOnStartup: platformCapabilities.value.supportsLaunchOnStartup
         ? sourceSettings.launchOnStartup
         : false,
     };
+  }
+
+  async function applySettingPatch(patch, key = "") {
+    if (savingSettings.value) {
+      return;
+    }
+
+    const previous = { ...settings };
+    const payload = buildSettingsPayload({
+      ...settings,
+      ...patch,
+    });
     settingsSaveError.value = "";
     savingSettings.value = true;
+    pendingSettingKey.value = key;
     closeSelect();
-    showSettings.value = false;
+    Object.assign(settings, payload);
 
     try {
       await persistSettings(payload);
       Object.assign(settings, payload);
-      savedCallback?.();
     } catch (error) {
+      Object.assign(settings, previous);
       settingsSaveError.value = formatErrorMessage(error);
-      showSettings.value = true;
       console.error("Failed to save settings", error);
     } finally {
+      pendingSettingKey.value = "";
+      savingSettings.value = false;
+    }
+  }
+
+  async function resetVisibleSettings() {
+    if (savingSettings.value) {
+      return;
+    }
+
+    settingsSaveError.value = "";
+    savingSettings.value = true;
+    pendingSettingKey.value = "reset";
+    closeSelect();
+
+    try {
+      const next = await resetPersistedSettings();
+      await syncSettings(next);
+    } catch (error) {
+      settingsSaveError.value = formatErrorMessage(error);
+      console.error("Failed to reset settings", error);
+    } finally {
+      pendingSettingKey.value = "";
       savingSettings.value = false;
     }
   }
 
   return {
+    applySettingPatch,
     appVersion,
     beginShortcutRecording,
     canToggleLaunchOnStartup,
-    chooseSelectOption,
     clearStartupError,
-    clearGlobalShortcut,
     closeSelect,
     currentAccentColor,
     currentAccentColorOptions,
@@ -336,29 +300,22 @@ export function useSettings() {
     currentLocale,
     currentThemeMode,
     currentThemeModeOptions,
-    debugToggleIndex,
     endShortcutRecording,
-    handleShortcutKeydown,
-    languageToggleIndex,
-    launchToggleIndex,
     loadAppVersion,
     loadPlatformCapabilities,
     localeOptions,
-    maxImageBytesMb,
     openSelectKey,
+    pendingSettingKey,
     platformCapabilities,
     recordingShortcut,
     refreshSettings,
-    saveSettings,
+    resetVisibleSettings,
     savingSettings,
     segmentedToggleStyle,
     selectedOptionLabel,
     setStartupError,
-    setMaxImageBytesMb,
     settings,
     settingsSaveError,
-    soundToggleIndex,
-    showSettings,
     startupError,
     t,
     toggleSelect,

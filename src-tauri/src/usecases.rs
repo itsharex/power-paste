@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::{
@@ -102,6 +102,13 @@ impl SettingsRuntimePort for DefaultSettingsRuntime {
             set_launch_on_startup(app, settings.launch_on_startup)?;
         }
         save_settings(&state.paths, &settings)?;
+        let trimmed_count = {
+            let mut store = state.history_store.lock().unwrap();
+            store.trim_by_settings(&settings)?
+        };
+        if trimmed_count > 0 {
+            let _ = app.emit(crate::models::HISTORY_UPDATED_EVENT, ());
+        }
         state.debug_context_menu_enabled.store(
             crate::should_enable_devtools(settings.debug_enabled),
             std::sync::atomic::Ordering::Relaxed,
@@ -125,6 +132,25 @@ pub(crate) fn execute_update_settings(
     DefaultSettingsRuntime
         .apply(&app, &state, &payload)
         .map_err(AppError::from)
+}
+
+pub(crate) fn execute_reset_settings(
+    app: AppHandle,
+    state: Arc<SharedState>,
+) -> Result<AppSettings, AppError> {
+    let current = state.settings.lock().unwrap().clone();
+    let payload = AppSettings {
+        window_x: current.window_x,
+        window_y: current.window_y,
+        window_width: current.window_width,
+        window_height: current.window_height,
+        ..AppSettings::default()
+    };
+
+    DefaultSettingsRuntime
+        .apply(&app, &state, &payload)
+        .map_err(AppError::from)?;
+    Ok(payload.normalized())
 }
 
 pub(crate) fn execute_copy_item(

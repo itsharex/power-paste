@@ -11,6 +11,11 @@ const routes = [
     name: 'lanTransfer',
     component: { template: '<div />' },
   },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: { template: '<div />' },
+  },
 ]
 
 export const router = createRouter({

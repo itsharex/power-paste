@@ -13,5 +13,6 @@ pub(crate) use lan_transfer::{
     send_lan_transfer_file, send_lan_transfer_text, start_lan_receiver, stop_lan_receiver,
 };
 pub(crate) use settings::{
-    get_default_download_dir, get_platform_capabilities, get_settings, update_settings,
+    get_default_download_dir, get_platform_capabilities, get_settings, reset_settings,
+    update_settings,
 };

@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::{
     clipboard::platform_capabilities,
     models::{AppError, AppSettings, PlatformCapabilities, SharedState},
-    usecases::execute_update_settings,
+    usecases::{execute_reset_settings, execute_update_settings},
 };
 
 // 获取当前应用设置。
@@ -28,6 +28,15 @@ pub(crate) fn update_settings(
     payload: AppSettings,
 ) -> Result<(), AppError> {
     execute_update_settings(app, state.inner().clone(), payload)
+}
+
+// 重置设置页可见配置，并保留窗口位置与尺寸。
+#[tauri::command]
+pub(crate) fn reset_settings(
+    app: AppHandle,
+    state: State<'_, Arc<SharedState>>,
+) -> Result<AppSettings, AppError> {
+    execute_reset_settings(app, state.inner().clone())
 }
 
 // 获取系统默认下载目录，用于互传文件保存位置的默认展示。

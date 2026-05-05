@@ -11,7 +11,8 @@ export function useKeyboardShortcuts({
   setSelectedId,
   settings,
   showEditModal,
-  showSettings,
+  isSettingsRoute,
+  leaveSettings,
   clearEditing,
 }) {
   function isEditableTarget(target) {
@@ -85,8 +86,8 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      if (showSettings.value) {
-        showSettings.value = false;
+      if (isSettingsRoute.value) {
+        void leaveSettings();
       }
       return;
     }

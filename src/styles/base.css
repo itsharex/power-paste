@@ -438,6 +438,221 @@
     padding: 0;
 }
 
+.settings-page {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+    color: var(--app-text);
+}
+
+.settings-page-topbar {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 0 0;
+}
+
+.settings-page-back {
+    width: 30px;
+    height: 30px;
+}
+
+.settings-page-title-block {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.settings-title-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-page-title-block h1 {
+    margin: 0;
+    font-size: 1.04rem;
+    line-height: 1.15;
+}
+
+.settings-page-title-block span {
+    color: var(--app-muted);
+    font-size: 0.76rem;
+}
+
+.settings-page-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.settings-reset-button {
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    font-size: 0.8rem;
+}
+
+.settings-title-update-badge {
+    flex: 0 0 auto;
+}
+
+.settings-title-update-badge.modal-update-badge-new {
+    background: transparent;
+    color: #ee332f;
+    box-shadow: none;
+}
+
+.settings-title-update-badge.modal-update-badge-new .modal-update-badge-mark {
+    color: #ee332f;
+}
+
+.settings-layout {
+    display: grid;
+    grid-template-columns: 126px minmax(0, 1fr);
+    gap: 12px;
+    min-height: 0;
+}
+
+.settings-sidebar {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid var(--app-panel-border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--app-panel-bg) 72%, transparent);
+    overflow: auto;
+    scrollbar-width: none;
+}
+
+.settings-sidebar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.settings-category-button {
+    position: relative;
+    width: 100%;
+    min-height: 32px;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--app-muted);
+    padding: 0 10px;
+    font-size: 0.82rem;
+    font-weight: 650;
+    text-align: left;
+    transition:
+        background 140ms ease,
+        color 140ms ease;
+}
+
+.settings-category-button:hover {
+    background: var(--action-button-hover-bg);
+    color: var(--app-text);
+}
+
+.settings-category-button.active {
+    background: color-mix(in srgb, var(--accent-primary-soft) 86%, transparent);
+    color: var(--accent-primary);
+}
+
+.settings-category-button.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+}
+
+.settings-content {
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    padding: 0 2px 4px 0;
+    scrollbar-width: none;
+}
+
+.settings-content::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.settings-section-grid {
+    align-content: start;
+    padding: 0;
+}
+
+.settings-wide-control {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    width: 100%;
+}
+
+.settings-update-action {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+
+.settings-value-text {
+    justify-self: end;
+    min-width: 0;
+    width: 100%;
+    max-width: min(100%, 420px);
+    overflow: hidden;
+    color: var(--app-text);
+    font-size: 0.82rem;
+    font-weight: 650;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.setting-label-row {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+}
+
+.setting-help-icon {
+    display: inline-grid;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid var(--app-panel-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-button-bg) 82%, transparent);
+    color: var(--app-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    text-transform: none;
+    cursor: help;
+}
+
+.setting-help-icon:hover,
+.setting-help-icon:focus-visible {
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 48%, var(--app-panel-border) 52%);
+    outline: none;
+}
+
 :root[data-theme="light"] {
     --app-text: #1d232d;
     --app-muted: rgba(29, 35, 45, 0.72);
@@ -1415,7 +1630,7 @@ select {
 .shortcut-input-wrap {
     position: relative;
     width: 100%;
-    max-width: 208px;
+    max-width: min(100%, 420px);
     justify-self: end;
 }
 
@@ -2096,7 +2311,7 @@ select {
 
 .setting-card {
     display: grid;
-    grid-template-columns: minmax(148px, 1fr) minmax(0, 208px);
+    grid-template-columns: minmax(148px, 0.9fr) minmax(240px, 1.3fr);
     align-items: center;
     gap: 12px;
     padding: 6px 2px;
@@ -2107,7 +2322,7 @@ select {
 }
 
 .setting-card.wide {
-    grid-template-columns: minmax(148px, 1fr) minmax(0, 208px);
+    grid-template-columns: minmax(148px, 0.9fr) minmax(240px, 1.3fr);
 }
 
 .setting-head {
@@ -2513,12 +2728,17 @@ select {
 .setting-card > .setting-actions {
     min-width: 0;
     width: 100%;
-    max-width: 208px;
+    max-width: min(100%, 420px);
     justify-self: end;
 }
 
 .setting-card.wide > .path-picker-wrap {
     max-width: 100%;
+}
+
+.setting-card > .settings-reset-button {
+    width: fit-content;
+    min-width: 96px;
 }
 
 .setting-card > input,
@@ -2575,7 +2795,7 @@ select {
     align-items: center;
     justify-content: flex-end;
     width: 100%;
-    max-width: 208px;
+    max-width: min(100%, 420px);
     justify-self: end;
 }
 
@@ -2896,6 +3116,15 @@ textarea {
         padding: 10px;
     }
 
+    .settings-page-topbar {
+        grid-template-columns: 30px minmax(0, 1fr);
+    }
+
+    .settings-page-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
     .modal-header,
     .modal-footer {
         flex-direction: column;
@@ -2955,7 +3184,7 @@ textarea {
 
     .setting-card,
     .setting-card.wide {
-        grid-template-columns: minmax(136px, 1fr) minmax(0, 176px);
+        grid-template-columns: minmax(136px, 0.9fr) minmax(0, 1.3fr);
         gap: 8px;
     }
 
@@ -2966,7 +3195,7 @@ textarea {
     .setting-card > .setting-toggle,
     .setting-card > .input-with-unit,
     .setting-card > .path-picker-wrap {
-        max-width: 176px;
+        max-width: min(100%, 360px);
     }
 
     .setting-toggle-option {
