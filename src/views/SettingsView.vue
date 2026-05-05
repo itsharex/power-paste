@@ -831,13 +831,6 @@ onUnmounted(() => {
         </div>
 
         <div v-if="activeCategory === 'about'" class="settings-grid settings-section-grid">
-          <section class="setting-card wide">
-            <div class="setting-head">
-              <span class="meta-label">{{ t('version') }}</span>
-            </div>
-            <span class="settings-value-text">{{ appVersion || '--' }}</span>
-          </section>
-
           <section class="setting-card about-card wide">
             <div class="setting-head">
               <span class="meta-label">{{ t('aboutTitle') }}</span>
@@ -858,6 +851,13 @@ onUnmounted(() => {
                 </svg>
               </button>
             </div>
+          </section>
+
+          <section class="setting-card wide">
+            <div class="setting-head">
+              <span class="meta-label">{{ t('version') }}</span>
+            </div>
+            <span class="settings-value-text">{{ appVersion || '--' }}</span>
           </section>
         </div>
       </section>
