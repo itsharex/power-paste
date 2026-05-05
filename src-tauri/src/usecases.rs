@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -94,6 +95,9 @@ impl SettingsRuntimePort for DefaultSettingsRuntime {
         if settings.launch_on_startup && !capabilities.supports_launch_on_startup {
             anyhow::bail!("unsupported_launch_on_startup");
         }
+        if let Some(path) = settings.lan_transfer_download_dir.as_ref() {
+            crate::lan_receiver::validate_download_dir(&PathBuf::from(path))?;
+        }
         if capabilities.supports_launch_on_startup {
             set_launch_on_startup(app, settings.launch_on_startup)?;
         }
@@ -142,7 +146,8 @@ pub(crate) fn execute_copy_item(
     crate::capture::mark_clipboard_suppressed(&state, item.hash.clone());
     clipboard
         .write_item(&app, &item, &target)
-        .map_err(AppError::from)
+        .map_err(AppError::from)?;
+    Ok(())
 }
 
 pub(crate) fn execute_paste_item(

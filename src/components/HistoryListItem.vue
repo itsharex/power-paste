@@ -31,6 +31,7 @@ const hasTextPreview = computed(() => {
 const hasMixedPreview = computed(
   () => props.item?.kind === 'mixed' && Boolean(props.item?.imageDataUrl) && hasTextPreview.value,
 )
+const isMobileSource = computed(() => props.item?.sourceApp === 'Mobile')
 const sourceAppInitials = computed(() => {
   const sourceApp = typeof props.item?.sourceApp === 'string' ? props.item.sourceApp.trim() : ''
   if (!sourceApp) {
@@ -158,8 +159,22 @@ function handlePreviewMouseLeave() {
           :title="item.sourceApp || t('clipboardFallback')"
           :aria-label="item.sourceApp || t('clipboardFallback')"
         >
+          <svg
+            v-if="isMobileSource"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            class="source-app-icon-phone"
+          >
+            <path
+              d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 15h4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
           <img
-            v-if="item.sourceIconDataUrl"
+            v-else-if="item.sourceIconDataUrl"
             :src="item.sourceIconDataUrl"
             alt=""
             class="source-app-icon-image"

@@ -14,6 +14,76 @@ import {
 const ACTIVE_FILTER_TAB_STORAGE_KEY = "clipdesk.activeFilterTab";
 const SELECTED_HISTORY_ID_STORAGE_KEY = "clipdesk.selectedHistoryId";
 const LATEST_HISTORY_ID_STORAGE_KEY = "clipdesk.latestHistoryId";
+let copySoundContext = null;
+
+function getCopySoundContext() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) {
+    return null;
+  }
+
+  if (!copySoundContext || copySoundContext.state === "closed") {
+    copySoundContext = new AudioContext();
+  }
+
+  return copySoundContext;
+}
+
+function playGeneratedCopyTone(context) {
+  const startTime = context.currentTime;
+  const duration = 0.06;
+  const endTime = startTime + duration;
+  const oscillator = context.createOscillator();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+
+  oscillator.type = "triangle";
+  oscillator.frequency.setValueAtTime(625, startTime);
+  oscillator.frequency.exponentialRampToValueAtTime(460, endTime);
+
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(700, startTime);
+  filter.Q.setValueAtTime(6, startTime);
+
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.28, startTime + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, endTime);
+
+  oscillator.connect(filter);
+  filter.connect(gain);
+  gain.connect(context.destination);
+
+  oscillator.start(startTime);
+  oscillator.stop(endTime + 0.01);
+}
+
+export function playCopySoundFallback() {
+  const context = getCopySoundContext();
+  if (!context) {
+    return;
+  }
+
+  const play = () => {
+    try {
+      playGeneratedCopyTone(context);
+    } catch (error) {
+      console.warn("Failed to play copy sound", error);
+    }
+  };
+
+  if (context.state === "suspended") {
+    void context
+      .resume()
+      .then(play)
+      .catch((error) => {
+        console.warn("Failed to resume copy sound context", error);
+        play();
+      });
+    return;
+  }
+
+  play();
+}
 
 function formatActionError(error, t) {
   const message =
@@ -53,7 +123,9 @@ function compareHistoryItems(left, right) {
     return Number(right.pinned) - Number(left.pinned);
   }
 
-  const pinnedAtCompare = (right.pinnedAt ?? "").localeCompare(left.pinnedAt ?? "");
+  const pinnedAtCompare = (right.pinnedAt ?? "").localeCompare(
+    left.pinnedAt ?? "",
+  );
   if (pinnedAtCompare !== 0) {
     return pinnedAtCompare;
   }
@@ -66,23 +138,31 @@ function compareHistoryItems(left, right) {
 }
 
 function getLatestHistoryItem(items) {
-  return [...items].sort((left, right) => {
-    const createdAtCompare = (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
-    if (createdAtCompare !== 0) {
-      return createdAtCompare;
-    }
+  return (
+    [...items].sort((left, right) => {
+      const createdAtCompare = (right.createdAt ?? "").localeCompare(
+        left.createdAt ?? "",
+      );
+      if (createdAtCompare !== 0) {
+        return createdAtCompare;
+      }
 
-    return String(right.id ?? "").localeCompare(String(left.id ?? ""));
-  })[0] ?? null;
+      return String(right.id ?? "").localeCompare(String(left.id ?? ""));
+    })[0] ?? null
+  );
 }
 
 export function useHistory({ platformCapabilities, settings, t }) {
   const query = ref("");
-  const activeFilterTab = ref(window.localStorage.getItem(ACTIVE_FILTER_TAB_STORAGE_KEY) || "all");
+  const activeFilterTab = ref(
+    window.localStorage.getItem(ACTIVE_FILTER_TAB_STORAGE_KEY) || "all",
+  );
   const history = ref([]);
   const loading = ref(true);
   const relativeTimeVersion = ref(0);
-  const selectedId = ref(window.localStorage.getItem(SELECTED_HISTORY_ID_STORAGE_KEY));
+  const selectedId = ref(
+    window.localStorage.getItem(SELECTED_HISTORY_ID_STORAGE_KEY),
+  );
   const historyPanelRef = ref(null);
   const showEditModal = ref(false);
   const editingItemId = ref(null);
@@ -94,7 +174,10 @@ export function useHistory({ platformCapabilities, settings, t }) {
       if (activeFilterTab.value === "mixed" && item.kind !== "mixed") {
         return false;
       }
-      if (activeFilterTab.value === "text" && !["text", "link"].includes(item.kind)) {
+      if (
+        activeFilterTab.value === "text" &&
+        !["text", "link"].includes(item.kind)
+      ) {
         return false;
       }
       if (activeFilterTab.value === "image" && item.kind !== "image") {
@@ -109,7 +192,8 @@ export function useHistory({ platformCapabilities, settings, t }) {
         return true;
       }
 
-      const haystack = `${item.preview}\n${item.fullText ?? ""}\n${item.sourceApp ?? ""}`.toLowerCase();
+      const haystack =
+        `${item.preview}\n${item.fullText ?? ""}\n${item.sourceApp ?? ""}`.toLowerCase();
       return haystack.includes(lower);
     }),
   );
@@ -129,20 +213,29 @@ export function useHistory({ platformCapabilities, settings, t }) {
       return;
     }
 
-    window.localStorage.setItem(ACTIVE_FILTER_TAB_STORAGE_KEY, activeFilterTab.value);
+    window.localStorage.setItem(
+      ACTIVE_FILTER_TAB_STORAGE_KEY,
+      activeFilterTab.value,
+    );
   }
 
   function syncPersistedHistoryState(items = history.value) {
     const latestHistoryItem = getLatestHistoryItem(items);
 
     if (selectedId.value) {
-      window.localStorage.setItem(SELECTED_HISTORY_ID_STORAGE_KEY, selectedId.value);
+      window.localStorage.setItem(
+        SELECTED_HISTORY_ID_STORAGE_KEY,
+        selectedId.value,
+      );
     } else {
       window.localStorage.removeItem(SELECTED_HISTORY_ID_STORAGE_KEY);
     }
 
     if (latestHistoryItem?.id) {
-      window.localStorage.setItem(LATEST_HISTORY_ID_STORAGE_KEY, latestHistoryItem.id);
+      window.localStorage.setItem(
+        LATEST_HISTORY_ID_STORAGE_KEY,
+        latestHistoryItem.id,
+      );
     } else {
       window.localStorage.removeItem(LATEST_HISTORY_ID_STORAGE_KEY);
     }
@@ -208,8 +301,12 @@ export function useHistory({ platformCapabilities, settings, t }) {
       });
       reorderHistory(items);
       const latestHistoryItem = getLatestHistoryItem(items);
-      const previousLatestHistoryId = window.localStorage.getItem(LATEST_HISTORY_ID_STORAGE_KEY);
-      const persistedSelectedId = window.localStorage.getItem(SELECTED_HISTORY_ID_STORAGE_KEY);
+      const previousLatestHistoryId = window.localStorage.getItem(
+        LATEST_HISTORY_ID_STORAGE_KEY,
+      );
+      const persistedSelectedId = window.localStorage.getItem(
+        SELECTED_HISTORY_ID_STORAGE_KEY,
+      );
       const hasNewHistory =
         Boolean(previousLatestHistoryId) &&
         Boolean(latestHistoryItem?.id) &&
@@ -218,9 +315,15 @@ export function useHistory({ platformCapabilities, settings, t }) {
       if (hasNewHistory) {
         activeFilterTab.value = "all";
         selectedId.value = latestHistoryItem.id;
-      } else if (persistedSelectedId && items.some((item) => item.id === persistedSelectedId)) {
+      } else if (
+        persistedSelectedId &&
+        items.some((item) => item.id === persistedSelectedId)
+      ) {
         selectedId.value = persistedSelectedId;
-      } else if (!selectedId.value || !items.some((item) => item.id === selectedId.value)) {
+      } else if (
+        !selectedId.value ||
+        !items.some((item) => item.id === selectedId.value)
+      ) {
         selectedId.value = latestHistoryItem?.id ?? items[0]?.id ?? null;
       }
 
@@ -239,7 +342,8 @@ export function useHistory({ platformCapabilities, settings, t }) {
       return;
     }
 
-    const previousLatestHistoryId = getLatestHistoryItem(history.value)?.id ?? null;
+    const previousLatestHistoryId =
+      getLatestHistoryItem(history.value)?.id ?? null;
     const index = history.value.findIndex((entry) => entry.id === item.id);
     if (index === -1) {
       history.value = [item, ...history.value];
@@ -255,7 +359,11 @@ export function useHistory({ platformCapabilities, settings, t }) {
     trimHistoryToLimit();
     const latestHistoryItem = getLatestHistoryItem(history.value);
 
-    if (index === -1 && latestHistoryItem?.id && latestHistoryItem.id !== previousLatestHistoryId) {
+    if (
+      index === -1 &&
+      latestHistoryItem?.id &&
+      latestHistoryItem.id !== previousLatestHistoryId
+    ) {
       activeFilterTab.value = "all";
       selectedId.value = latestHistoryItem.id;
     } else {
@@ -268,6 +376,9 @@ export function useHistory({ platformCapabilities, settings, t }) {
   async function copyItem(id) {
     try {
       actionFeedback.value = "";
+      if (settings.soundEnabled) {
+        playCopySoundFallback();
+      }
       await copyItemRequest(id);
       actionFeedback.value = t("statusCopied");
     } catch (error) {
@@ -398,7 +509,9 @@ export function useHistory({ platformCapabilities, settings, t }) {
       return;
     }
 
-    const activeItem = panel.querySelector(`[data-history-id="${selectedId.value}"]`);
+    const activeItem = panel.querySelector(
+      `[data-history-id="${selectedId.value}"]`,
+    );
     if (!(activeItem instanceof HTMLElement)) {
       return;
     }

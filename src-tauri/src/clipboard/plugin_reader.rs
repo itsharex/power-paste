@@ -9,6 +9,8 @@ use crate::rich_text::normalize_clipboard_text;
 #[derive(Debug)]
 pub(crate) struct PluginClipboardImage {
     pub(crate) png_bytes: Vec<u8>,
+    pub(crate) original_bytes: Option<Vec<u8>>,
+    pub(crate) original_mime: Option<String>,
     pub(crate) width: u32,
     pub(crate) height: u32,
 }
@@ -25,12 +27,14 @@ pub(crate) struct PluginClipboardSnapshot {
 fn image_from_plugin_read(path: &Path, width: u32, height: u32) -> Result<PluginClipboardImage> {
     Ok(PluginClipboardImage {
         png_bytes: std::fs::read(path)?,
+        original_bytes: None,
+        original_mime: None,
         width,
         height,
     })
 }
 
-pub(crate) fn read_snapshot(app: &AppHandle) -> PluginClipboardSnapshot {
+pub(crate) fn read_snapshot(app: &AppHandle, read_image_payload: bool) -> PluginClipboardSnapshot {
     let clipboard = app.clipboard_next();
     let text = clipboard
         .read_text()
@@ -41,10 +45,16 @@ pub(crate) fn read_snapshot(app: &AppHandle) -> PluginClipboardSnapshot {
         .ok()
         .and_then(normalize_clipboard_text);
     let rtf = clipboard.read_rtf().ok().and_then(normalize_clipboard_text);
-    let image = clipboard
-        .read_image(app.clone(), None)
-        .ok()
-        .and_then(|image| image_from_plugin_read(&image.path, image.width, image.height).ok());
+    let image = read_image_payload
+        .then(|| {
+            clipboard
+                .read_image(app.clone(), None)
+                .ok()
+                .and_then(|image| {
+                    image_from_plugin_read(&image.path, image.width, image.height).ok()
+                })
+        })
+        .flatten();
     let files = clipboard
         .read_files()
         .ok()

@@ -6,11 +6,16 @@ use uuid::Uuid;
 use crate::{
     models::{AppSettings, CapturedClipboard, StoragePaths, StoredClipboardItem},
     rich_text::normalize_rich_text_payload,
-    storage::{preview_text, sha256_hex},
+    storage::{image_preview_png_from_bytes, preview_text, sha256_hex},
 };
 
 pub(crate) struct SqliteHistoryStore {
     connection: Connection,
+}
+
+pub(crate) struct UpsertedCapture {
+    pub(crate) inserted: bool,
+    pub(crate) item: StoredClipboardItem,
 }
 
 fn ensure_column(connection: &Connection, name: &str, sql_type: &str) -> Result<()> {
@@ -56,6 +61,7 @@ impl SqliteHistoryStore {
               image_png BLOB,
               image_original_bytes BLOB,
               image_original_mime TEXT,
+              image_preview_png BLOB,
               image_width INTEGER,
               image_height INTEGER,
               source_app TEXT,
@@ -75,6 +81,7 @@ impl SqliteHistoryStore {
         )?;
         ensure_column(&self.connection, "image_original_bytes", "BLOB")?;
         ensure_column(&self.connection, "image_original_mime", "TEXT")?;
+        ensure_column(&self.connection, "image_preview_png", "BLOB")?;
         Ok(())
     }
 
@@ -101,7 +108,7 @@ impl SqliteHistoryStore {
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
                    image_png, image_original_bytes, image_original_mime,
-                   image_width, image_height, source_app, source_icon_data_url,
+                   image_preview_png, image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             ORDER BY pinned DESC, pinned_at DESC, favorite DESC, created_at DESC
@@ -111,7 +118,7 @@ impl SqliteHistoryStore {
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
                    image_png, image_original_bytes, image_original_mime,
-                   image_width, image_height, source_app, source_icon_data_url,
+                   image_preview_png, image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             WHERE lower(
@@ -138,7 +145,7 @@ impl SqliteHistoryStore {
             r#"
             SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
                    image_png, image_original_bytes, image_original_mime,
-                   image_width, image_height, source_app, source_icon_data_url,
+                   image_preview_png, image_width, image_height, source_app, source_icon_data_url,
                    hash, pinned, favorite
             FROM clipboard_items
             WHERE id = ?1
@@ -155,7 +162,7 @@ impl SqliteHistoryStore {
         capture: CapturedClipboard,
         source_app: Option<(String, Option<String>)>,
         settings: &AppSettings,
-    ) -> Result<bool> {
+    ) -> Result<UpsertedCapture> {
         let tx = self.connection.transaction()?;
         let now = Utc::now().to_rfc3339();
         let hash = capture_hash(&capture).to_string();
@@ -166,7 +173,7 @@ impl SqliteHistoryStore {
                 r#"
                 SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
                        image_png, image_original_bytes, image_original_mime,
-                       image_width, image_height, source_app, source_icon_data_url,
+                       image_preview_png, image_width, image_height, source_app, source_icon_data_url,
                        hash, pinned, favorite
                 FROM clipboard_items
                 WHERE hash = ?1 OR (kind = 'text' AND full_text = ?2)
@@ -180,7 +187,7 @@ impl SqliteHistoryStore {
                 r#"
                 SELECT id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
                        image_png, image_original_bytes, image_original_mime,
-                       image_width, image_height, source_app, source_icon_data_url,
+                       image_preview_png, image_width, image_height, source_app, source_icon_data_url,
                        hash, pinned, favorite
                 FROM clipboard_items
                 WHERE hash = ?1
@@ -218,13 +225,14 @@ impl SqliteHistoryStore {
                         image_png = ?9,
                         image_original_bytes = ?10,
                         image_original_mime = ?11,
-                        image_width = ?12,
-                        image_height = ?13,
-                        source_app = ?14,
-                        source_icon_data_url = ?15,
-                        hash = ?16,
-                        pinned = ?17,
-                        favorite = ?18
+                        image_preview_png = ?12,
+                        image_width = ?13,
+                        image_height = ?14,
+                        source_app = ?15,
+                        source_icon_data_url = ?16,
+                        hash = ?17,
+                        pinned = ?18,
+                        favorite = ?19
                     WHERE id = ?1
                     "#,
                     params![
@@ -239,6 +247,7 @@ impl SqliteHistoryStore {
                         next.image_png,
                         next.image_original_bytes,
                         next.image_original_mime,
+                        next.image_preview_png,
                         next.image_width,
                         next.image_height,
                         next.source_app,
@@ -249,8 +258,12 @@ impl SqliteHistoryStore {
                     ],
                 )?;
                 trim_history(&tx, settings.max_history_items)?;
+                let item = next;
                 tx.commit()?;
-                Ok(false)
+                Ok(UpsertedCapture {
+                    inserted: false,
+                    item,
+                })
             }
             None => {
                 let item = build_new_item(capture, &now, source_app_name, source_icon_data_url);
@@ -258,11 +271,11 @@ impl SqliteHistoryStore {
                     r#"
                     INSERT INTO clipboard_items (
                       id, kind, created_at, pinned_at, preview, full_text, html_text, rtf_text,
-                      image_png, image_original_bytes, image_original_mime,
+                      image_png, image_original_bytes, image_original_mime, image_preview_png,
                       image_width, image_height, source_app, source_icon_data_url,
                       hash, pinned, favorite
                     ) VALUES (
-                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
                     )
                     "#,
                     params![
@@ -277,6 +290,7 @@ impl SqliteHistoryStore {
                         item.image_png,
                         item.image_original_bytes,
                         item.image_original_mime,
+                        item.image_preview_png,
                         item.image_width,
                         item.image_height,
                         item.source_app,
@@ -287,8 +301,12 @@ impl SqliteHistoryStore {
                     ],
                 )?;
                 trim_history(&tx, settings.max_history_items)?;
+                let item = item;
                 tx.commit()?;
-                Ok(true)
+                Ok(UpsertedCapture {
+                    inserted: true,
+                    item,
+                })
             }
         }
     }
@@ -355,6 +373,18 @@ impl SqliteHistoryStore {
         Ok(())
     }
 
+    pub(crate) fn update_source_icon(&self, id: &str, source_icon_data_url: &str) -> Result<()> {
+        self.connection.execute(
+            r#"
+            UPDATE clipboard_items
+            SET source_icon_data_url = ?2
+            WHERE id = ?1
+            "#,
+            params![id, source_icon_data_url],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn clear_history(&self) -> Result<()> {
         self.connection
             .execute("DELETE FROM clipboard_items WHERE pinned = 0", [])?;
@@ -374,13 +404,14 @@ impl SqliteHistoryStore {
             image_png: row.get(8)?,
             image_original_bytes: row.get(9)?,
             image_original_mime: row.get(10)?,
-            image_width: row.get(11)?,
-            image_height: row.get(12)?,
-            source_app: row.get(13)?,
-            source_icon_data_url: row.get(14)?,
-            hash: row.get(15)?,
-            pinned: row.get::<_, i64>(16)? != 0,
-            favorite: row.get::<_, i64>(17)? != 0,
+            image_preview_png: row.get(11)?,
+            image_width: row.get(12)?,
+            image_height: row.get(13)?,
+            source_app: row.get(14)?,
+            source_icon_data_url: row.get(15)?,
+            hash: row.get(16)?,
+            pinned: row.get::<_, i64>(17)? != 0,
+            favorite: row.get::<_, i64>(18)? != 0,
         };
 
         let (full_text, html_text) =
@@ -446,6 +477,7 @@ fn apply_capture(
             item.image_png = None;
             item.image_original_bytes = None;
             item.image_original_mime = None;
+            item.image_preview_png = None;
             item.image_width = None;
             item.image_height = None;
             item.hash = hash;
@@ -464,6 +496,7 @@ fn apply_capture(
             item.image_png = None;
             item.image_original_bytes = None;
             item.image_original_mime = None;
+            item.image_preview_png = None;
             item.image_width = None;
             item.image_height = None;
             item.hash = hash;
@@ -482,6 +515,9 @@ fn apply_capture(
             item.full_text = None;
             item.html_text = None;
             item.rtf_text = None;
+            item.image_preview_png = image_preview_png_from_bytes(
+                original_bytes.as_deref().unwrap_or(png_bytes.as_slice()),
+            );
             item.image_png = Some(png_bytes);
             item.image_original_bytes = original_bytes;
             item.image_original_mime = original_mime;
@@ -503,6 +539,7 @@ fn apply_capture(
             item.full_text = Some(text);
             item.html_text = html_text;
             item.rtf_text = rtf_text;
+            item.image_preview_png = png_bytes.as_deref().and_then(image_preview_png_from_bytes);
             item.image_png = png_bytes;
             item.image_original_bytes = None;
             item.image_original_mime = None;
@@ -533,6 +570,7 @@ fn build_new_item(
         image_png: None,
         image_original_bytes: None,
         image_original_mime: None,
+        image_preview_png: None,
         image_width: None,
         image_height: None,
         source_app,
@@ -601,7 +639,7 @@ mod tests {
         let inserted = store
             .upsert_capture(text_capture("alpha"), None, &settings)
             .expect("insert");
-        assert!(inserted);
+        assert!(inserted.inserted);
         assert!(PathBuf::from(&paths.db_path).exists());
         assert_eq!(store.list_all().expect("all").len(), 1);
 
@@ -614,12 +652,18 @@ mod tests {
         let mut store = SqliteHistoryStore::new(&paths).expect("store");
         let settings = AppSettings::default();
 
-        assert!(store
-            .upsert_capture(text_capture("alpha"), None, &settings)
-            .expect("first"));
-        assert!(!store
-            .upsert_capture(text_capture("alpha"), None, &settings)
-            .expect("second"));
+        assert!(
+            store
+                .upsert_capture(text_capture("alpha"), None, &settings)
+                .expect("first")
+                .inserted
+        );
+        assert!(
+            !store
+                .upsert_capture(text_capture("alpha"), None, &settings)
+                .expect("second")
+                .inserted
+        );
         assert_eq!(store.list_all().expect("all").len(), 1);
 
         let _ = fs::remove_dir_all(paths.db_path.parent().unwrap_or(paths.db_path.as_path()));

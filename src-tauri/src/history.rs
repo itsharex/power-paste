@@ -125,6 +125,61 @@ function run(argv) {
     icon
 }
 
+#[cfg(windows)]
+fn windows_app_icon_base64(app_path: &str) -> Option<String> {
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-STA",
+            "-Command",
+            "$ErrorActionPreference='Stop'; \
+             $path = [Environment]::GetEnvironmentVariable('POWER_PASTE_ICON_PATH', 'Process'); \
+             if ([string]::IsNullOrWhiteSpace($path)) { return }; \
+             Add-Type -AssemblyName System.Drawing; \
+             $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path); \
+             if ($null -eq $icon) { return }; \
+             $bitmap = $icon.ToBitmap(); \
+             $ms = New-Object System.IO.MemoryStream; \
+             $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); \
+             [Convert]::ToBase64String($ms.ToArray()); \
+             $bitmap.Dispose(); \
+             $icon.Dispose(); \
+             $ms.Dispose();",
+        ])
+        .env("POWER_PASTE_ICON_PATH", app_path)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+pub(crate) fn source_app_icon_data_url(app: &ForegroundAppResult) -> Option<String> {
+    let icon_base64 = app
+        .icon_png_base64
+        .clone()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            #[cfg(windows)]
+            {
+                app.app_path.as_deref().and_then(windows_app_icon_base64)
+            }
+            #[cfg(target_os = "macos")]
+            {
+                app.app_path.as_deref().and_then(macos_app_icon_base64)
+            }
+            #[cfg(all(not(windows), not(target_os = "macos")))]
+            {
+                None
+            }
+        })?;
+
+    Some(format!("data:image/png;base64,{icon_base64}"))
+}
+
 fn friendly_process_name(name: &str) -> String {
     match name.to_lowercase().as_str() {
         "excel" => "Excel".into(),
@@ -196,85 +251,70 @@ pub(crate) fn source_app_info(app: ForegroundAppResult) -> Option<(String, Optio
         icon_png_base64: app.icon_png_base64.clone(),
         app_path: app.app_path.clone(),
     })?;
-    let icon_base64 = app
+    let icon = app
         .icon_png_base64
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                app.app_path.as_deref().and_then(macos_app_icon_base64)
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                None
-            }
-        });
-    let icon = icon_base64.map(|value| format!("data:image/png;base64,{value}"));
+        .map(|value| format!("data:image/png;base64,{value}"));
     Some((label, icon))
 }
 
 #[cfg(windows)]
 pub(crate) fn capture_foreground_app() -> Result<Option<ForegroundAppResult>> {
-    let output = crate::powershell(
-        "$ErrorActionPreference='Stop'; \
-         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
-         Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class PowerPasteWin32 { [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId); }'; \
-         $hwnd = [PowerPasteWin32]::GetForegroundWindow(); \
-         if ($hwnd -eq [IntPtr]::Zero) { return }; \
-         $processIdValue = 0; \
-         [void][PowerPasteWin32]::GetWindowThreadProcessId($hwnd, [ref]$processIdValue); \
-         if ($processIdValue -le 0) { return }; \
-         $process = Get-Process -Id $processIdValue -ErrorAction SilentlyContinue; \
-         if ($null -eq $process) { return }; \
-         $name = $process.ProcessName; \
-         $processPath = $null; \
-         try { \
-           $processPath = $process.Path; \
-         } catch { } \
-         if ([string]::IsNullOrWhiteSpace($processPath)) { \
-           try { \
-             $processPath = (Get-CimInstance Win32_Process -Filter \"ProcessId = $processIdValue\" -ErrorAction Stop).ExecutablePath \
-           } catch { } \
-         } \
-         $appDisplayName = $null; \
-         if (-not [string]::IsNullOrWhiteSpace($processPath)) { \
-           try { \
-             $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($processPath); \
-             foreach ($candidate in @($versionInfo.ProductName, $versionInfo.FileDescription, $versionInfo.InternalName)) { \
-               if (-not [string]::IsNullOrWhiteSpace($candidate)) { \
-                 $appDisplayName = $candidate; \
-                 break; \
-               } \
-             } \
-           } catch { } \
-         } \
-         if ([string]::IsNullOrWhiteSpace($appDisplayName)) { \
-           $appDisplayName = $name; \
-         } \
-         $iconBase64 = $null; \
-         try { \
-           if (-not [string]::IsNullOrWhiteSpace($processPath)) { \
-             Add-Type -AssemblyName System.Drawing; \
-             $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($processPath); \
-             if ($null -ne $icon) { \
-               $bitmap = $icon.ToBitmap(); \
-               $ms = New-Object System.IO.MemoryStream; \
-               $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); \
-               $iconBase64 = [Convert]::ToBase64String($ms.ToArray()); \
-               $bitmap.Dispose(); \
-               $icon.Dispose(); \
-               $ms.Dispose(); \
-             } \
-           } \
-         } catch { } \
-         @{ processName = $name; displayName = $appDisplayName; iconPngBase64 = $iconBase64; appPath = $processPath } | ConvertTo-Json -Compress",
-    )?;
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        },
+        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId},
+    };
 
-    if output.trim().is_empty() {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
         return Ok(None);
     }
 
-    Ok(Some(serde_json::from_str(&output)?))
+    let mut process_id = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+    }
+    if process_id == 0 {
+        return Ok(None);
+    }
+
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+    if process.is_null() {
+        return Ok(None);
+    }
+
+    let mut buffer = vec![0u16; 32768];
+    let mut length = buffer.len() as u32;
+    let path = unsafe {
+        let ok = QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut length) != 0;
+        CloseHandle(process);
+        if ok {
+            Some(String::from_utf16_lossy(&buffer[..length as usize]))
+        } else {
+            None
+        }
+    };
+
+    let process_name = path
+        .as_deref()
+        .and_then(|value| std::path::Path::new(value).file_stem())
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+        .unwrap_or_default();
+
+    if process_name.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(ForegroundAppResult {
+        display_name: friendly_process_name(&process_name),
+        process_name,
+        icon_png_base64: None,
+        app_path: path,
+    }))
 }
 
 #[cfg(not(windows))]
@@ -381,6 +421,8 @@ pub(crate) fn build_captured_clipboard(
     html_text: Option<String>,
     rtf_text: Option<String>,
     png_bytes: Option<Vec<u8>>,
+    original_bytes: Option<Vec<u8>>,
+    original_mime: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<Option<CapturedClipboard>> {
@@ -414,7 +456,8 @@ pub(crate) fn build_captured_clipboard(
             if png_bytes.len() > settings.max_image_bytes {
                 return Ok(None);
             }
-            let image_hash = image_hash_from_png_bytes(png_bytes)?;
+            let image_hash =
+                image_hash_from_png_bytes(original_bytes.as_deref().unwrap_or(png_bytes))?;
             return Ok(Some(CapturedClipboard::Image {
                 hash: image_hash,
                 preview: format!(
@@ -423,8 +466,8 @@ pub(crate) fn build_captured_clipboard(
                     height.unwrap_or_default()
                 ),
                 png_bytes: png_bytes.clone(),
-                original_bytes: None,
-                original_mime: None,
+                original_bytes: original_bytes.clone(),
+                original_mime: original_mime.clone(),
                 image_width: width.unwrap_or_default(),
                 image_height: height.unwrap_or_default(),
             }));
@@ -482,7 +525,8 @@ pub(crate) fn build_captured_clipboard(
         if png_bytes.len() > settings.max_image_bytes {
             return Ok(None);
         }
-        let image_hash = image_hash_from_png_bytes(&png_bytes)?;
+        let image_hash =
+            image_hash_from_png_bytes(original_bytes.as_deref().unwrap_or(png_bytes.as_slice()))?;
         return Ok(Some(CapturedClipboard::Image {
             hash: image_hash,
             preview: format!(
@@ -491,8 +535,8 @@ pub(crate) fn build_captured_clipboard(
                 height.unwrap_or_default()
             ),
             png_bytes,
-            original_bytes: None,
-            original_mime: None,
+            original_bytes,
+            original_mime,
             image_width: width.unwrap_or_default(),
             image_height: height.unwrap_or_default(),
         }));
@@ -501,16 +545,26 @@ pub(crate) fn build_captured_clipboard(
     Ok(None)
 }
 
-pub(crate) fn store_capture(
+pub(crate) fn upsert_history_item(
+    history: &mut Vec<StoredClipboardItem>,
+    item: StoredClipboardItem,
+) {
+    history.retain(|existing| existing.id != item.id);
+    history.insert(0, item);
+}
+
+pub(crate) fn store_capture_item(
     store: &mut SqliteHistoryStore,
     history: &mut Vec<StoredClipboardItem>,
     capture: CapturedClipboard,
     source_app: Option<(String, Option<String>)>,
     settings: &AppSettings,
-) -> Result<bool> {
-    let inserted = store.upsert_capture(capture, source_app, settings)?;
-    *history = store.list_all()?;
-    Ok(inserted)
+) -> Result<StoredClipboardItem> {
+    let upserted = store.upsert_capture(capture, source_app, settings)?;
+    let _inserted = upserted.inserted;
+    let item = upserted.item;
+    upsert_history_item(history, item.clone());
+    Ok(item)
 }
 
 pub(crate) fn history_to_dto(
@@ -688,6 +742,8 @@ mod tests {
             Some("<p>hello</p><img src=\"x\" />".into()),
             None,
             Some(png_bytes),
+            None,
+            None,
             Some(1),
             Some(1),
         )
@@ -705,6 +761,8 @@ mod tests {
             &settings,
             String::new(),
             Some("<p>hello</p><img src=\"data:image/png;base64,abc\" />".into()),
+            None,
+            None,
             None,
             None,
             None,
@@ -734,6 +792,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .expect("capture")
         .expect("text");
@@ -755,6 +815,7 @@ mod tests {
             image_png: None,
             image_original_bytes: None,
             image_original_mime: None,
+            image_preview_png: None,
             image_width: None,
             image_height: None,
             source_app: None,
@@ -799,6 +860,7 @@ mod tests {
             image_png: None,
             image_original_bytes: None,
             image_original_mime: None,
+            image_preview_png: None,
             image_width: None,
             image_height: None,
             source_app: None,

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Mutex},
@@ -14,27 +15,10 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 pub(crate) const SETTINGS_FILE: &str = "settings.json";
 pub(crate) const SQLITE_FILE: &str = "clipdesk.db";
 pub(crate) const HISTORY_UPDATED_EVENT: &str = "history-updated";
+pub(crate) const COPY_SOUND_EVENT: &str = "copy-sound";
 pub(crate) const LAN_RECEIVER_STATUS_EVENT: &str = "lan-receiver-status";
 pub(crate) const UPDATE_STATUS_EVENT: &str = "update-status";
 pub(crate) const PANEL_LABEL: &str = "main";
-pub(crate) const DEBUG_CONTEXT_MENU_INIT_SCRIPT: &str = r#"
-;(() => {
-  const state = (window.__CLIPDESK_DEBUG_GUARD__ ??= { allowContextMenu: false });
-  const blockContextMenu = (event) => {
-    if (state.allowContextMenu) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    if (typeof event.stopImmediatePropagation === "function") {
-      event.stopImmediatePropagation();
-    }
-  };
-
-  window.addEventListener("contextmenu", blockContextMenu, true);
-  document.addEventListener("contextmenu", blockContextMenu, true);
-})();
-"#;
 
 #[cfg(windows)]
 pub(crate) const CF_DIB: u32 = 8;
@@ -92,10 +76,12 @@ impl serde::Serialize for AppError {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppSettings {
     pub(crate) debug_enabled: bool,
+    pub(crate) sound_enabled: bool,
     pub(crate) launch_on_startup: bool,
     pub(crate) polling_interval_ms: u64,
     pub(crate) max_history_items: usize,
     pub(crate) max_image_bytes: usize,
+    pub(crate) lan_transfer_download_dir: Option<String>,
     pub(crate) global_shortcut: String,
     pub(crate) ignored_apps: Vec<String>,
     pub(crate) locale: String,
@@ -112,10 +98,12 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             debug_enabled: false,
+            sound_enabled: true,
             launch_on_startup: false,
             polling_interval_ms: 500,
             max_history_items: 200,
             max_image_bytes: 6_000_000,
+            lan_transfer_download_dir: None,
             global_shortcut: "Ctrl+Shift+V".into(),
             ignored_apps: vec!["1Password".into(), "Bitwarden".into(), "KeePassXC".into()],
             locale: "zh-CN".into(),
@@ -133,6 +121,10 @@ impl Default for AppSettings {
 impl AppSettings {
     pub(crate) fn normalized(mut self) -> Self {
         self.global_shortcut = normalize_shortcut(&self.global_shortcut);
+        self.lan_transfer_download_dir = self
+            .lan_transfer_download_dir
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         self
     }
 }
@@ -169,6 +161,7 @@ pub(crate) struct StoredClipboardItem {
     pub(crate) image_png: Option<Vec<u8>>,
     pub(crate) image_original_bytes: Option<Vec<u8>>,
     pub(crate) image_original_mime: Option<String>,
+    pub(crate) image_preview_png: Option<Vec<u8>>,
     pub(crate) image_width: Option<u32>,
     pub(crate) image_height: Option<u32>,
     pub(crate) source_app: Option<String>,
@@ -180,23 +173,11 @@ pub(crate) struct StoredClipboardItem {
 
 impl StoredClipboardItem {
     pub(crate) fn image_data_url(&self) -> Option<String> {
-        self.image_original_bytes
+        self.image_preview_png
             .as_ref()
             .filter(|bytes| !bytes.is_empty())
-            .map(|bytes| {
-                let mime = self
-                    .image_original_mime
-                    .as_deref()
-                    .filter(|value| value.starts_with("image/"))
-                    .unwrap_or("image/png");
-                format!("data:{mime};base64,{}", BASE64.encode(bytes))
-            })
-            .or_else(|| {
-                self.image_png
-                    .as_ref()
-                    .filter(|bytes| !bytes.is_empty())
-                    .map(|bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)))
-            })
+            .or(self.image_png.as_ref().filter(|bytes| !bytes.is_empty()))
+            .map(|bytes| format!("data:image/png;base64,{}", BASE64.encode(bytes)))
     }
 
     pub(crate) fn image_display_byte_size(&self) -> Option<usize> {
@@ -248,6 +229,7 @@ pub(crate) struct MonitorState {
     pub(crate) last_seen_hash: Option<String>,
     pub(crate) suppress_hash: Option<String>,
     pub(crate) suppress_until: Option<Instant>,
+    pub(crate) last_sound_event_at: Option<Instant>,
     #[cfg(windows)]
     pub(crate) last_target_window: Option<HwndRaw>,
     #[cfg(target_os = "linux")]
@@ -276,9 +258,16 @@ pub(crate) struct SharedState {
 pub(crate) struct LanReceiverSession {
     pub(crate) url: String,
     pub(crate) qr_svg: String,
-    pub(crate) expires_at: SystemTime,
+    pub(crate) ip: String,
+    pub(crate) port: u16,
+    pub(crate) token: String,
+    pub(crate) expires_at: Option<SystemTime>,
     pub(crate) stop_requested: Arc<AtomicBool>,
     pub(crate) last_status: Option<LanReceiverStatus>,
+    pub(crate) last_phone_seen: Option<SystemTime>,
+    pub(crate) last_activity: SystemTime,
+    pub(crate) messages: Vec<LanTransferMessage>,
+    pub(crate) files: HashMap<String, LanTransferFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,8 +276,13 @@ pub(crate) struct LanReceiverStateDto {
     pub(crate) running: bool,
     pub(crate) url: Option<String>,
     pub(crate) qr_svg: Option<String>,
+    pub(crate) ip: Option<String>,
+    pub(crate) port: Option<u16>,
+    pub(crate) token: Option<String>,
     pub(crate) expires_at: Option<u64>,
     pub(crate) last_status: Option<LanReceiverStatus>,
+    pub(crate) connected_devices: usize,
+    pub(crate) messages: Vec<LanTransferMessageDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -297,6 +291,46 @@ pub(crate) struct LanReceiverStatus {
     pub(crate) kind: String,
     pub(crate) message: String,
     pub(crate) received_kind: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LanTransferFile {
+    pub(crate) file_name: String,
+    pub(crate) mime_type: String,
+    pub(crate) bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LanTransferMessage {
+    pub(crate) id: String,
+    pub(crate) sender: String,
+    pub(crate) kind: String,
+    pub(crate) text: Option<String>,
+    pub(crate) file_name: Option<String>,
+    pub(crate) mime_type: Option<String>,
+    pub(crate) size: Option<usize>,
+    pub(crate) image_data_url: Option<String>,
+    pub(crate) download_url: Option<String>,
+    pub(crate) local_path: Option<PathBuf>,
+    pub(crate) created_at: u64,
+    pub(crate) status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LanTransferMessageDto {
+    pub(crate) id: String,
+    pub(crate) sender: String,
+    pub(crate) kind: String,
+    pub(crate) text: Option<String>,
+    pub(crate) file_name: Option<String>,
+    pub(crate) mime_type: Option<String>,
+    pub(crate) size: Option<usize>,
+    pub(crate) image_data_url: Option<String>,
+    pub(crate) download_url: Option<String>,
+    pub(crate) has_local_file: bool,
+    pub(crate) created_at: u64,
+    pub(crate) status: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -373,7 +407,7 @@ pub(crate) enum CapturedClipboard {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ForegroundAppResult {
     pub(crate) process_name: String,

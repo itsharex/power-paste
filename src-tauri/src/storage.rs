@@ -1,7 +1,7 @@
 use std::fs;
 
 use anyhow::Result;
-use image::load_from_memory;
+use image::{load_from_memory, ImageFormat};
 use serde_json::{from_slice, to_vec_pretty};
 use sha2::{Digest, Sha256};
 
@@ -58,14 +58,34 @@ pub(crate) fn text_hash(text: &str, html_text: Option<&str>, rtf_text: Option<&s
 }
 
 pub(crate) fn image_hash_from_png_bytes(png_bytes: &[u8]) -> Result<String> {
-    let image = load_from_memory(png_bytes)?;
-    let rgba = image.into_rgba8();
-    let (width, height) = rgba.dimensions();
     let mut hasher = Sha256::new();
-    hasher.update(width.to_le_bytes());
-    hasher.update(height.to_le_bytes());
-    hasher.update(rgba.as_raw());
+    hasher.update((png_bytes.len() as u64).to_le_bytes());
+    hasher.update(png_bytes);
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+pub(crate) fn image_preview_png_from_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
+    const PREVIEW_MAX_WIDTH: u32 = 420;
+    const PREVIEW_MAX_HEIGHT: u32 = 320;
+    const INLINE_ORIGINAL_LIMIT: usize = 256 * 1024;
+
+    if bytes.len() <= INLINE_ORIGINAL_LIMIT
+        && matches!(image::guess_format(bytes).ok(), Some(ImageFormat::Png))
+    {
+        return Some(bytes.to_vec());
+    }
+
+    let image = load_from_memory(bytes).ok()?;
+    let preview = image.thumbnail(PREVIEW_MAX_WIDTH, PREVIEW_MAX_HEIGHT);
+    let mut preview_bytes = Vec::new();
+    preview
+        .write_to(
+            &mut std::io::Cursor::new(&mut preview_bytes),
+            ImageFormat::Png,
+        )
+        .ok()?;
+
+    Some(preview_bytes)
 }
 
 pub(crate) fn mixed_hash(

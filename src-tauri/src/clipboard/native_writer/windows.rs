@@ -233,7 +233,11 @@ pub(crate) fn write_mixed_payload(
     profile: TargetProfile,
 ) -> Result<()> {
     let html = build_mixed_item_html(item, profile);
-    write_clipboard_payload_native(item.full_text.as_deref(), html.as_deref(), item.image_png.as_deref())
+    write_clipboard_payload_native(
+        item.full_text.as_deref(),
+        html.as_deref(),
+        item.image_png.as_deref(),
+    )
 }
 
 pub(crate) fn write_payload(

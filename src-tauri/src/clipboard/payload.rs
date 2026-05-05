@@ -83,9 +83,9 @@ pub(crate) fn payload_for_item(item: &StoredClipboardItem) -> ClipboardPayload {
                 if text.is_some() || html.is_some() || png_bytes.is_some() =>
             {
                 ClipboardPayload::Mixed {
-                text,
-                html,
-                png_bytes,
+                    text,
+                    html,
+                    png_bytes,
                 }
             }
             (text, None, None, Some(rtf)) => ClipboardPayload::RichText {
