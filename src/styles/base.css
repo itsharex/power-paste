@@ -756,12 +756,17 @@ select {
     min-height: 0;
     padding: 10px;
     overflow: hidden;
-    transition: opacity 200ms ease;
 }
 
-/* 窗口尺寸变化时的内容过渡动画 */
-.window-shell.resizing {
-    opacity: 0.92;
+/* 页面切换时的淡入淡出效果 */
+.page-transition-enter-active,
+.page-transition-leave-active {
+    transition: opacity 180ms ease;
+}
+
+.page-transition-enter-from,
+.page-transition-leave-to {
+    opacity: 0;
 }
 
 .history-region {

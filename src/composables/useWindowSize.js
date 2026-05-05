@@ -1,25 +1,24 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { watch } from 'vue'
+import { watch, nextTick } from 'vue'
 
 // 窗口尺寸配置
 const WINDOW_SIZES = {
-  home: {
-    width: 380,
-    height: 760,
-  },
   settings: {
     width: 600,
     height: 500,
   },
-  lanTransfer: {
-    width: 380,
-    height: 760,
-  },
 }
+
+// 保存用户在主面板的窗口尺寸
+let savedHomeSize = null
+let isResizing = false
+let currentRouteName = null
 
 /**
  * 窗口尺寸管理 composable
- * 根据路由自动调整窗口尺寸，并添加过渡动画
+ * 根据路由自动调整窗口尺寸
+ * - 切换到设置面板：自动调整为固定尺寸（600x500）
+ * - 切换回主面板：恢复用户之前调整的尺寸
  */
 export function useWindowSize(route) {
   const appWindow = getCurrentWindow()
@@ -27,99 +26,70 @@ export function useWindowSize(route) {
   // 监听路由变化，自动调整窗口尺寸
   watch(
     () => route.name,
-    async (routeName) => {
-      const targetSize = WINDOW_SIZES[routeName] || WINDOW_SIZES.home
+    async (routeName, oldRouteName) => {
+      // 避免重复调整或相同路由
+      if (isResizing || routeName === currentRouteName) {
+        return
+      }
 
       try {
+        isResizing = true
+
         // 获取当前窗口尺寸
         const currentSize = await appWindow.innerSize()
 
-        // 如果尺寸已经匹配，不需要调整
-        if (
-          currentSize.width === targetSize.width &&
-          currentSize.height === targetSize.height
-        ) {
-          return
+        // 从主面板切换到设置面板
+        if (oldRouteName === 'home' && routeName === 'settings') {
+          // 保存主面板的当前尺寸
+          savedHomeSize = {
+            width: currentSize.width,
+            height: currentSize.height,
+          }
+
+          // 切换到设置面板的固定尺寸
+          const targetSize = WINDOW_SIZES.settings
+
+          // 等待下一帧，确保 DOM 更新
+          await nextTick()
+
+          await appWindow.setSize({
+            type: 'Logical',
+            width: targetSize.width,
+            height: targetSize.height,
+          })
+
+          currentRouteName = routeName
+          await new Promise((resolve) => setTimeout(resolve, 150))
         }
+        // 从设置面板切换回主面板
+        else if (oldRouteName === 'settings' && routeName === 'home') {
+          // 恢复主面板之前保存的尺寸
+          if (savedHomeSize) {
+            await nextTick()
 
-        // 添加 resizing 类以触发 CSS 过渡
-        const windowShell = document.querySelector('.window-shell')
-        if (windowShell) {
-          windowShell.classList.add('resizing')
+            await appWindow.setSize({
+              type: 'Logical',
+              width: savedHomeSize.width,
+              height: savedHomeSize.height,
+            })
+
+            currentRouteName = routeName
+            await new Promise((resolve) => setTimeout(resolve, 150))
+          } else {
+            // 如果没有保存的尺寸（首次启动），不做调整
+            currentRouteName = routeName
+          }
         }
-
-        // 使用动画过渡调整窗口尺寸
-        await animateWindowResize(
-          appWindow,
-          currentSize,
-          targetSize,
-          300, // 动画持续时间 300ms
-        )
-
-        // 移除 resizing 类
-        if (windowShell) {
-          setTimeout(() => {
-            windowShell.classList.remove('resizing')
-          }, 100)
+        // 其他路由切换（如主面板 <-> 互传面板）
+        else {
+          // 不做窗口尺寸调整，保持用户当前的窗口大小
+          currentRouteName = routeName
         }
       } catch (error) {
         console.error('Failed to resize window:', error)
+      } finally {
+        isResizing = false
       }
     },
-    { immediate: true },
   )
-}
-
-/**
- * 窗口尺寸动画过渡
- * @param {Window} appWindow - Tauri 窗口实例
- * @param {Object} from - 起始尺寸 { width, height }
- * @param {Object} to - 目标尺寸 { width, height }
- * @param {number} duration - 动画持续时间（毫秒）
- */
-async function animateWindowResize(appWindow, from, to, duration) {
-  const startTime = Date.now()
-  const startWidth = from.width
-  const startHeight = from.height
-  const deltaWidth = to.width - startWidth
-  const deltaHeight = to.height - startHeight
-
-  return new Promise((resolve) => {
-    const animate = async () => {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
-
-      // 使用 easeInOutCubic 缓动函数
-      const eased = easeInOutCubic(progress)
-
-      const currentWidth = Math.round(startWidth + deltaWidth * eased)
-      const currentHeight = Math.round(startHeight + deltaHeight * eased)
-
-      try {
-        await appWindow.setSize({
-          type: 'Logical',
-          width: currentWidth,
-          height: currentHeight,
-        })
-      } catch (error) {
-        console.error('Failed to set window size:', error)
-      }
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      } else {
-        resolve()
-      }
-    }
-
-    requestAnimationFrame(animate)
-  })
-}
-
-/**
- * easeInOutCubic 缓动函数
- * 提供平滑的加速和减速效果
- */
-function easeInOutCubic(t) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 }

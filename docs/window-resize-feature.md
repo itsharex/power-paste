@@ -2,24 +2,37 @@
 
 ## 功能说明
 
-应用现在支持根据不同页面自动调整窗口尺寸，并带有平滑的过渡动画。
+应用现在支持智能窗口尺寸管理：
+- **设置面板**：自动调整为固定的宽矮布局（600x500）
+- **主面板**：记住用户手动调整的窗口尺寸，保持用户偏好
+
+## 行为说明
+
+### 切换到设置面板
+当用户点击设置按钮时：
+1. 保存当前主面板的窗口尺寸
+2. 自动调整为设置面板的固定尺寸（600x500）
+
+### 返回主面板
+当用户从设置返回主面板时：
+1. 恢复之前保存的窗口尺寸
+2. 保持用户手动调整的宽度和高度
+
+### 其他路由切换
+在主面板和互传面板之间切换时：
+- 不做任何窗口尺寸调整
+- 完全保持用户当前的窗口大小
 
 ## 窗口尺寸配置
 
-### 主面板（历史列表）
-- 宽度：380px
-- 高度：760px
-- 瘦长布局，适合显示历史记录列表
-
-### 设置面板
+### 设置面板（固定尺寸）
 - 宽度：600px
 - 高度：500px
 - 宽矮布局，适合显示设置选项
 
-### 互传面板
-- 宽度：380px
-- 高度：760px
-- 与主面板相同的瘦长布局
+### 主面板和互传面板（用户自定义）
+- 尊重用户手动调整的尺寸
+- 默认初始尺寸：380x760（在 tauri.conf.json 中配置）
 
 ## 技术实现
 
@@ -27,59 +40,87 @@
 
 创建了 `src/composables/useWindowSize.js`，负责：
 - 监听路由变化
-- 自动调整窗口尺寸
-- 提供平滑的动画过渡效果
+- 保存和恢复主面板的窗口尺寸
+- 只在必要时调整窗口尺寸
 
-### 2. 动画效果
+### 2. 尺寸记忆机制
 
-- **动画时长**：300ms
-- **缓动函数**：easeInOutCubic（提供平滑的加速和减速）
-- **视觉反馈**：窗口内容在调整时会有轻微的透明度变化
+```javascript
+// 保存用户在主面板的窗口尺寸
+let savedHomeSize = null
+
+// 从主面板切换到设置面板时保存
+savedHomeSize = {
+  width: currentSize.width,
+  height: currentSize.height,
+}
+
+// 从设置面板返回主面板时恢复
+await appWindow.setSize({
+  type: 'Logical',
+  width: savedHomeSize.width,
+  height: savedHomeSize.height,
+})
+```
 
 ### 3. CSS 过渡
 
-在 `src/styles/base.css` 中添加了：
+在 `src/styles/base.css` 中添加了页面切换的淡入淡出效果：
 ```css
-.window-shell {
-    transition: opacity 200ms ease;
+.page-transition-enter-active,
+.page-transition-leave-active {
+    transition: opacity 180ms ease;
 }
 
-.window-shell.resizing {
-    opacity: 0.92;
+.page-transition-enter-from,
+.page-transition-leave-to {
+    opacity: 0;
 }
 ```
 
 ## 使用方式
 
-功能已自动集成到应用中，无需手动配置。当用户：
-1. 点击设置按钮 → 窗口自动变为宽矮布局（600x500）
-2. 从设置返回主面板 → 窗口自动恢复瘦长布局（380x760）
-3. 切换到互传面板 → 窗口保持瘦长布局（380x760）
+功能已自动集成到应用中，无需手动配置。用户体验：
+
+1. **首次启动**：窗口使用默认尺寸（380x760）
+2. **手动调整**：用户可以随意拖拽调整主面板的窗口大小
+3. **打开设置**：窗口自动变为宽矮布局（600x500）
+4. **返回主面板**：窗口恢复到用户之前调整的尺寸
+5. **切换互传**：窗口保持当前尺寸不变
 
 ## 自定义配置
 
-如需调整窗口尺寸，可修改 `src/composables/useWindowSize.js` 中的 `WINDOW_SIZES` 配置：
+如需调整设置面板的固定尺寸，可修改 `src/composables/useWindowSize.js` 中的 `WINDOW_SIZES` 配置：
 
 ```javascript
 const WINDOW_SIZES = {
-  home: {
-    width: 380,
-    height: 760,
-  },
   settings: {
     width: 600,
     height: 500,
   },
-  lanTransfer: {
-    width: 380,
-    height: 760,
-  },
+}
+```
+
+如需调整主面板的默认初始尺寸，可修改 `src-tauri/tauri.conf.json`：
+
+```json
+{
+  "app": {
+    "windows": [
+      {
+        "width": 380,
+        "height": 760,
+        "minWidth": 380,
+        "minHeight": 600
+      }
+    ]
+  }
 }
 ```
 
 ## 注意事项
 
 1. 窗口尺寸调整使用 Tauri 的 `setSize` API
-2. 动画通过 `requestAnimationFrame` 实现，确保流畅性
-3. 如果窗口已经是目标尺寸，不会触发调整动画
+2. 主面板的尺寸保存在内存中，应用重启后会恢复默认尺寸
+3. 只有设置面板使用固定尺寸，其他页面都尊重用户的窗口大小
 4. 错误会被捕获并记录到控制台，不会影响应用正常使用
