@@ -426,16 +426,16 @@
 
 .path-picker-wrap {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 34px;
     gap: 8px;
     align-items: center;
     width: 100%;
 }
 
 .path-picker-button {
-    min-height: 34px;
-    padding: 0 12px;
-    white-space: nowrap;
+    width: 34px;
+    height: 34px;
+    padding: 0;
 }
 
 :root[data-theme="light"] {
@@ -2504,6 +2504,10 @@ select {
     width: 100%;
     max-width: 208px;
     justify-self: end;
+}
+
+.setting-card.wide > .path-picker-wrap {
+    max-width: 100%;
 }
 
 .setting-card > input,

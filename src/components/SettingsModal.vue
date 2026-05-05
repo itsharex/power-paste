@@ -470,8 +470,23 @@ watch(
               readonly
               :placeholder="t('lanTransferDownloadDirPlaceholder')"
             />
-            <button class="ghost path-picker-button" type="button" @click="chooseLanTransferDownloadDir">
-              {{ t("chooseFolder") }}
+            <button
+              class="toolbar-icon-button path-picker-button"
+              type="button"
+              :title="t('chooseFolder')"
+              :aria-label="t('chooseFolder')"
+              @click="chooseLanTransferDownloadDir"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3.5 7.5h6l1.7 2h9.3v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-10Zm0 2h17"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
             </button>
           </div>
         </section>
