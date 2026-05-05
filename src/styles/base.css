@@ -2739,8 +2739,21 @@ select {
 .setting-card > .setting-actions {
     min-width: 0;
     width: 100%;
-    max-width: min(100%, 420px);
+    max-width: min(100%, 280px);
     justify-self: end;
+}
+
+/* 数字输入框更窄 */
+.setting-card > input[type="number"] {
+    max-width: min(100%, 140px);
+}
+
+/* 文本输入框和 textarea 更宽 */
+.setting-card.wide > input[type="text"],
+.setting-card.wide > .path-picker-wrap,
+.setting-card.wide > textarea,
+.setting-card.wide > .settings-wide-control {
+    max-width: 100%;
 }
 
 .setting-card.wide > .path-picker-wrap {

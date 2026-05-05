@@ -9,11 +9,30 @@ const WINDOW_SIZES = {
   },
 }
 
-// 保存用户在主面板的窗口尺寸
+// 保存用户在主面板的窗口尺寸（逻辑像素）
 let savedHomeSize = null
 let isResizing = false
 let currentRouteName = null
 let isFirstLoad = true
+
+/**
+ * 获取窗口的逻辑尺寸
+ */
+async function getLogicalSize(appWindow) {
+  const size = await appWindow.innerSize()
+  // 确保返回的是逻辑像素
+  if (size.type === 'Physical') {
+    const scaleFactor = await appWindow.scaleFactor()
+    return {
+      width: Math.round(size.width / scaleFactor),
+      height: Math.round(size.height / scaleFactor),
+    }
+  }
+  return {
+    width: size.width,
+    height: size.height,
+  }
+}
 
 /**
  * 窗口尺寸管理 composable
@@ -36,11 +55,8 @@ export function useWindowSize(route) {
         // 如果首次加载就是主面板，保存初始尺寸
         if (routeName === 'home' || routeName === 'lanTransfer') {
           try {
-            const currentSize = await appWindow.innerSize()
-            savedHomeSize = {
-              width: currentSize.width,
-              height: currentSize.height,
-            }
+            savedHomeSize = await getLogicalSize(appWindow)
+            console.log('初始主面板尺寸（逻辑像素）:', savedHomeSize)
           } catch (error) {
             console.error('Failed to get initial size:', error)
           }
@@ -58,12 +74,9 @@ export function useWindowSize(route) {
 
         // 从主面板或互传面板切换到设置面板
         if ((oldRouteName === 'home' || oldRouteName === 'lanTransfer') && routeName === 'settings') {
-          // 保存当前尺寸（在切换前保存）
-          const currentSize = await appWindow.innerSize()
-          savedHomeSize = {
-            width: currentSize.width,
-            height: currentSize.height,
-          }
+          // 保存当前尺寸（逻辑像素）
+          savedHomeSize = await getLogicalSize(appWindow)
+          console.log('保存主面板尺寸（逻辑像素）:', savedHomeSize)
 
           // 切换到设置面板的固定尺寸
           const targetSize = WINDOW_SIZES.settings
@@ -83,8 +96,11 @@ export function useWindowSize(route) {
         else if (oldRouteName === 'settings' && (routeName === 'home' || routeName === 'lanTransfer')) {
           // 恢复之前保存的尺寸
           if (savedHomeSize) {
+            console.log('恢复主面板尺寸（逻辑像素）:', savedHomeSize)
+
             await nextTick()
 
+            // 使用逻辑像素设置
             await appWindow.setSize({
               type: 'Logical',
               width: savedHomeSize.width,
@@ -93,6 +109,11 @@ export function useWindowSize(route) {
 
             currentRouteName = routeName
             await new Promise((resolve) => setTimeout(resolve, 150))
+            
+            // 验证恢复后的尺寸
+            const restoredSize = await getLogicalSize(appWindow)
+            console.log('实际恢复后尺寸（逻辑像素）:', restoredSize)
+            console.log('尺寸差异: 宽度', restoredSize.width - savedHomeSize.width, '高度', restoredSize.height - savedHomeSize.height)
           } else {
             // 如果没有保存的尺寸，不做调整
             currentRouteName = routeName
