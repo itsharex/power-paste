@@ -2,6 +2,8 @@ use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::ffi::c_void;
 #[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "macos")]
@@ -127,34 +129,165 @@ function run(argv) {
 
 #[cfg(windows)]
 fn windows_app_icon_base64(app_path: &str) -> Option<String> {
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-STA",
-            "-Command",
-            "$ErrorActionPreference='Stop'; \
-             $path = [Environment]::GetEnvironmentVariable('POWER_PASTE_ICON_PATH', 'Process'); \
-             if ([string]::IsNullOrWhiteSpace($path)) { return }; \
-             Add-Type -AssemblyName System.Drawing; \
-             $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path); \
-             if ($null -eq $icon) { return }; \
-             $bitmap = $icon.ToBitmap(); \
-             $ms = New-Object System.IO.MemoryStream; \
-             $bitmap.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); \
-             [Convert]::ToBase64String($ms.ToArray()); \
-             $bitmap.Dispose(); \
-             $icon.Dispose(); \
-             $ms.Dispose();",
-        ])
-        .env("POWER_PASTE_ICON_PATH", app_path)
-        .output()
-        .ok()
-        .filter(|output| output.status.success())?;
+    use image::{DynamicImage, ImageFormat, RgbaImage};
+    use windows_sys::Win32::{
+        Graphics::Gdi::{
+            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetObjectW, SelectObject,
+            BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+        },
+        UI::{
+            Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON},
+            WindowsAndMessaging::{DestroyIcon, DrawIconEx, GetIconInfo, DI_NORMAL, ICONINFO},
+        },
+    };
 
-    String::from_utf8(output.stdout)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    fn encode_icon_bitmap_to_base64(
+        icon_handle: windows_sys::Win32::UI::WindowsAndMessaging::HICON,
+        width: i32,
+        height: i32,
+    ) -> Option<String> {
+        let mut pixels = vec![0u8; (width as usize) * (height as usize) * 4];
+        let mut bits_ptr: *mut c_void = std::ptr::null_mut();
+        let bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        unsafe {
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            if dc.is_null() {
+                return None;
+            }
+
+            let bitmap = CreateDIBSection(
+                dc,
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut bits_ptr,
+                std::ptr::null_mut(),
+                0,
+            );
+            if bitmap.is_null() || bits_ptr.is_null() {
+                DeleteDC(dc);
+                return None;
+            }
+
+            let old_object = SelectObject(dc, bitmap as HGDIOBJ);
+            let draw_ok = DrawIconEx(
+                dc,
+                0,
+                0,
+                icon_handle,
+                width,
+                height,
+                0,
+                std::ptr::null_mut(),
+                DI_NORMAL,
+            ) != 0;
+
+            if draw_ok {
+                std::ptr::copy_nonoverlapping(
+                    bits_ptr as *const u8,
+                    pixels.as_mut_ptr(),
+                    pixels.len(),
+                );
+            }
+
+            SelectObject(dc, old_object);
+            DeleteObject(bitmap as HGDIOBJ);
+            DeleteDC(dc);
+
+            if !draw_ok {
+                return None;
+            }
+        }
+
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk.swap(0, 2);
+        }
+
+        let image = RgbaImage::from_raw(width as u32, height as u32, pixels)?;
+        let mut png_bytes = Vec::new();
+        DynamicImage::ImageRgba8(image)
+            .write_to(&mut std::io::Cursor::new(&mut png_bytes), ImageFormat::Png)
+            .ok()?;
+
+        Some(BASE64.encode(png_bytes))
+    }
+
+    let wide_path: Vec<u16> = app_path.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut file_info = SHFILEINFOW::default();
+    let icon_handle = unsafe {
+        let result = SHGetFileInfoW(
+            wide_path.as_ptr(),
+            0,
+            &mut file_info,
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        );
+        if result == 0 {
+            return None;
+        }
+        file_info.hIcon
+    };
+    if icon_handle.is_null() {
+        return None;
+    }
+
+    let mut icon_info = ICONINFO::default();
+    let extracted = unsafe { GetIconInfo(icon_handle, &mut icon_info) != 0 };
+    if !extracted {
+        unsafe {
+            DestroyIcon(icon_handle);
+        }
+        return None;
+    }
+
+    let mut bitmap = BITMAP::default();
+    let bitmap_handle = if !icon_info.hbmColor.is_null() {
+        icon_info.hbmColor
+    } else {
+        icon_info.hbmMask
+    };
+    let got_bitmap = unsafe {
+        GetObjectW(
+            bitmap_handle as *mut c_void,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bitmap as *mut BITMAP as *mut c_void,
+        ) != 0
+    };
+
+    let result = if got_bitmap {
+        let width = bitmap.bmWidth.max(1);
+        let height = if !icon_info.hbmColor.is_null() {
+            bitmap.bmHeight.max(1)
+        } else {
+            (bitmap.bmHeight / 2).max(1)
+        };
+        encode_icon_bitmap_to_base64(icon_handle, width, height)
+    } else {
+        None
+    };
+
+    unsafe {
+        if !icon_info.hbmColor.is_null() {
+            DeleteObject(icon_info.hbmColor as HGDIOBJ);
+        }
+        if !icon_info.hbmMask.is_null() {
+            DeleteObject(icon_info.hbmMask as HGDIOBJ);
+        }
+        DestroyIcon(icon_handle);
+    }
+
+    result
 }
 
 pub(crate) fn source_app_icon_data_url(app: &ForegroundAppResult) -> Option<String> {
