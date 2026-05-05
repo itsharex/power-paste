@@ -756,6 +756,12 @@ select {
     min-height: 0;
     padding: 10px;
     overflow: hidden;
+    transition: opacity 200ms ease;
+}
+
+/* 窗口尺寸变化时的内容过渡动画 */
+.window-shell.resizing {
+    opacity: 0.92;
 }
 
 .history-region {

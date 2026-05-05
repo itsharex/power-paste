@@ -19,6 +19,7 @@ import { playCopySoundFallback, useHistory } from "./composables/useHistory";
 import { useTheme } from "./composables/useTheme";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { useLanReceiver } from "./composables/useLanReceiver";
+import { useWindowSize } from "./composables/useWindowSize";
 
 const settingsState = useSettings();
 const updaterState = useUpdater({ t: settingsState.t });
@@ -35,6 +36,9 @@ useTheme({
     currentThemeMode: settingsState.currentThemeMode,
     currentAccentColor: settingsState.currentAccentColor,
 });
+
+// 根据路由自动调整窗口尺寸
+useWindowSize(route);
 
 const { handleWindowAction } = useKeyboardShortcuts({
     closeSelect: settingsState.closeSelect,
