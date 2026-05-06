@@ -277,10 +277,6 @@ async function handleShortcutKeydown(event) {
 }
 
 async function resetSettings() {
-  if (!window.confirm(props.t('resetSettingsConfirm'))) {
-    return
-  }
-
   await props.resetSettings()
 }
 

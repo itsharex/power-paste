@@ -11,6 +11,7 @@ import SearchBar from "./components/SearchBar.vue";
 import FilterTabs from "./components/FilterTabs.vue";
 import HistoryList from "./components/HistoryList.vue";
 import EditModal from "./components/EditModal.vue";
+import ConfirmModal from "./components/ConfirmModal.vue";
 import LanTransferView from "./views/LanTransferView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import { useSettings } from "./composables/useSettings";
@@ -69,6 +70,14 @@ let unlistenWindowFocus = null;
 const startupBusy = ref(false);
 const isLanTransferRoute = computed(() => route.name === "lanTransfer");
 const isSettingsRoute = computed(() => route.name === "settings");
+const confirmDialogState = ref({
+    cancelLabel: "",
+    confirmLabel: "",
+    message: "",
+    onConfirm: null,
+    show: false,
+    title: "",
+});
 
 function cleanupListeners() {
     unlistenHistory?.();
@@ -152,6 +161,62 @@ async function leaveLanTransferRoute() {
 
 async function leaveSettingsRoute() {
     await router.push({ name: "home" });
+}
+
+function closeConfirmDialog() {
+    confirmDialogState.value = {
+        cancelLabel: "",
+        confirmLabel: "",
+        message: "",
+        onConfirm: null,
+        show: false,
+        title: "",
+    };
+}
+
+function openConfirmDialog({
+    cancelLabel,
+    confirmLabel,
+    message,
+    onConfirm,
+    title,
+}) {
+    confirmDialogState.value = {
+        cancelLabel,
+        confirmLabel,
+        message,
+        onConfirm,
+        show: true,
+        title,
+    };
+}
+
+async function confirmDialogAction() {
+    const action = confirmDialogState.value.onConfirm;
+    closeConfirmDialog();
+    if (typeof action === "function") {
+        await action();
+    }
+}
+
+function openClearHistoryConfirm() {
+    openConfirmDialog({
+        cancelLabel: settingsState.t("cancelAction"),
+        confirmLabel: settingsState.t("clear"),
+        message: settingsState.t("clearHistoryConfirm"),
+        onConfirm: historyState.clearHistory,
+        title: settingsState.t("clear"),
+    });
+}
+
+function openResetSettingsConfirm() {
+    openConfirmDialog({
+        cancelLabel: settingsState.t("cancelAction"),
+        confirmLabel: settingsState.t("resetSettings"),
+        message: settingsState.t("resetSettingsConfirm"),
+        onConfirm: settingsState.resetVisibleSettings,
+        title: settingsState.t("resetSettings"),
+    });
 }
 </script>
 
@@ -323,7 +388,7 @@ async function leaveSettingsRoute() {
                     :open-select-key="settingsState.openSelectKey.value"
                     :pending-setting-key="settingsState.pendingSettingKey.value"
                     :recording-shortcut="settingsState.recordingShortcut.value"
-                    :reset-settings="settingsState.resetVisibleSettings"
+                    :reset-settings="openResetSettingsConfirm"
                     :saving-settings="settingsState.savingSettings.value"
                     :segmented-toggle-style="settingsState.segmentedToggleStyle"
                     :selected-option-label="settingsState.selectedOptionLabel"
@@ -347,7 +412,7 @@ async function leaveSettingsRoute() {
                     :action-feedback="historyState.actionFeedback.value"
                     :clear-label="settingsState.t('clear')"
                     :clear-search-label="settingsState.t('clearSearch')"
-                    :on-clear="historyState.clearHistory"
+                    :on-clear="openClearHistoryConfirm"
                     :on-clear-query="
                         () => {
                             historyState.query.value = '';
@@ -446,6 +511,15 @@ async function leaveSettingsRoute() {
             "
             @save="historyState.saveEditedItem"
             @update:draft="historyState.editDraft.value = $event"
+        />
+        <ConfirmModal
+            :cancel-label="confirmDialogState.cancelLabel"
+            :confirm-label="confirmDialogState.confirmLabel"
+            :message="confirmDialogState.message"
+            :show="confirmDialogState.show"
+            :title="confirmDialogState.title"
+            @close="closeConfirmDialog"
+            @confirm="confirmDialogAction"
         />
     </div>
 </template>
