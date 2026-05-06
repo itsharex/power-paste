@@ -1,8 +1,8 @@
 # Power Paste
 
-Power Paste is a desktop clipboard history manager built with `Tauri 2`, `Vue 3`, and `Rust`. It is designed around a native-feeling workflow: monitor clipboard changes in the background, open a compact history panel with a global shortcut, then quickly search, preview, copy, edit, or paste previous items back into the last target application.
+Power Paste is a desktop clipboard history manager built with `Tauri 2`, `Vue 3`, and `Rust`. It focuses on a native-feeling workflow: watch clipboard changes in the background, open a compact panel with a global shortcut, then quickly search, preview, copy, edit, tag, or paste older items back into the last target application.
 
-It is not only a utility that gets the job done. Power Paste is also built as a polished desktop product: a translucent panel, light and dark themes, accent colors, and a compact visual language that aims to make a high-frequency productivity tool feel refined enough to keep open every day.
+The current implementation is local-first. Clipboard history is stored in SQLite on the device, settings are persisted in `settings.json`, and phone transfer runs over a temporary local-network session served by the desktop app itself.
 
 中文说明见 [README.zh-CN.md](./README.zh-CN.md)。
 
@@ -10,122 +10,129 @@ It is not only a utility that gets the job done. Power Paste is also built as a 
 
 | Main Panel (Light) | QR Panel (Dark) | Settings |
 |---|---|---|
-| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/qr.png) |![Power Paste settings panel](./docs/settings.png)|
-
-## Why Power Paste
-
-- Fast: open the panel with a global shortcut and bring previous clipboard content back in seconds
-- Native-feeling: designed around desktop workflows instead of browser-like interaction patterns
-- Good-looking: translucent surfaces, theme switching, and accent colors are part of the product value
-- Meant to stay around: tray support, single-instance behavior, and update checks make it practical as an always-available companion
+| ![Power Paste light theme](./docs/light.png) | ![Power Paste dark theme](./docs/qr.png) | ![Power Paste settings panel](./docs/settings.png) |
 
 ## Highlights
 
-- Global shortcut to toggle the history panel
-- Capture text, image, and mixed clipboard content
-- Detect copied links and open them in the default browser from the history item
-- Search and filter by `All`, `Pinned`, `Text`, `Image`, and `Image + Text`
-- Pin important entries to keep them at the top
+- Global shortcut to toggle the main history panel
+- Capture `text`, `link`, `image`, and `mixed` clipboard content
+- Search and filter by `All`, `Pinned`, `Text`, `Image`, and `Mixed`
+- Pin important items and keep them out of bulk clear / retention cleanup
+- Favorite items for an extra visual priority marker
+- Finder-style color tags: up to 3 tags per item, with 7 fixed colors and customizable labels
 - Edit plain-text history items in place
-- Restore clipboard content or paste directly back to the previous target app when supported on the current platform
-- Hover image thumbnails to preview a larger image
-- Browse large history sets smoothly while keeping an accurate item count
-- Transfer text and files between the desktop app and a phone browser over the local network by scanning a QR code
-- Show connected / disconnected transfer status on both desktop and phone, with automatic idle-session cleanup
-- Settings for language, theme mode, accent color, launch on startup, history size, image size, transfer download folder, debug mode, and global shortcut
-- Tray integration, single-instance behavior, startup update checks, and manual update checks from the tray menu
-- Local persistence powered by SQLite
+- Copy history items back to the system clipboard, or paste directly to the previous target app when supported
+- Hover image thumbnails to preview larger images
+- Local-network phone transfer for text, images, and files through a browser page opened by scanning a QR code
+- Settings for language, theme, accent color, density, launch on startup, sound, history retention, image-size limit, transfer directory, tag labels, debug mode, and global shortcut
+- Tray integration, single-instance behavior, automatic update checks, and manual update checks
+- Custom in-app confirmation dialogs instead of system confirm prompts for destructive actions
+
+## Current Feature Set
+
+### History Workflow
+
+- Compact transparent panel with keyboard-first navigation
+- Accurate item count for the current query and filter state
+- `Enter` pastes the selected item on supported platforms
+- `Ctrl/Cmd + C` copies the selected item back to the clipboard
+- Double-click can trigger direct paste when the current platform supports it
+- Links can be opened in the system default browser
+- `Clear History` removes only unpinned items
+
+### Item Types
+
+- `Text`: searchable, editable, copyable, directly pasteable on supported platforms
+- `Link`: detected from copied URLs and openable in the default browser
+- `Image`: thumbnail preview, hover preview, clipboard replay on supported platforms
+- `Mixed`: combined text + image payloads where the backend can preserve or replay them
+
+### Tags and Organization
+
+- Each history item can carry up to `3` tags
+- Built-in tag colors match the Finder-style palette: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`
+- Tag color and display name are separate
+- Tag names are editable from settings
+- Tag filters are available directly in the main panel
+
+### Phone and PC Transfer
+
+- Start a temporary LAN transfer session from the desktop app
+- Scan a QR code with a phone to open a browser-based transfer page
+- No mobile app is required
+- Send text and files from desktop to phone
+- Send text, images, and files from phone to desktop
+- Files received on desktop are saved to the configured download directory
+- Desktop-side transfer history can open or reveal received files
+- Session status shows connected / disconnected state and is cleaned up after idle timeout
+
+### Settings
+
+The settings view is split into these categories:
+
+- `General`
+- `History`
+- `Transfer`
+- `Shortcuts`
+- `Advanced`
+- `About`
+
+Current configurable options include:
+
+- Language: Simplified Chinese / English
+- Theme mode: Light / Dark / System
+- Accent color: Ocean / Amber / Jade / Rose
+- Density: compact / cozy
+- Launch on startup
+- Copy sound on capture / replay
+- Maximum history item count
+- Maximum retention days for unpinned history
+- Maximum stored image size
+- Tag display names
+- LAN transfer download directory
+- Global shortcut recording / clearing
+- Debug mode
+
+Update checks are not configured as a regular setting. The app checks for updates on startup, shows an update badge in the UI when a new version is available, and also exposes a manual tray action.
 
 ## Platform Status
 
-- Windows: primary target platform, and currently the only platform with native mixed clipboard replay plus target-aware segmented paste for some apps
-- macOS: direct paste depends on Accessibility / Automation permission from the system
-- Linux: direct paste supports `X11 + xdotool` and `Wayland + wtype`; mixed content replay still falls back to a single preferred payload
+- Windows: primary target platform, and currently the strongest platform for mixed clipboard replay and target-aware direct paste
+- macOS: direct paste depends on system Accessibility / Automation permission
+- Linux: direct paste depends on `X11 + xdotool` or `Wayland + wtype`; mixed replay still degrades to a single preferred payload
 
 ### macOS Permission Reset After Upgrade
 
-If direct paste still reports missing Accessibility or Automation permission after upgrading from an older version, macOS may still associate the permission record with the previous app build. Re-authorize Power Paste with these steps:
+If direct paste still reports missing Accessibility or Automation permission after upgrading from an older build, macOS may still associate the permission record with the previous app bundle. Re-authorize Power Paste with these steps:
 
 1. Quit Power Paste.
-2. Run the following command:
+2. Run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Power\ Paste.app
 ```
 
-3. Open `System Settings > Privacy & Security > Accessibility` and turn Power Paste off, then on again.
+3. Open `System Settings > Privacy & Security > Accessibility` and toggle Power Paste off, then on again.
 4. Open `System Settings > Privacy & Security > Automation` and re-enable Power Paste if it appears there.
-5. Start Power Paste again and try direct paste.
+5. Start Power Paste again and retry direct paste.
 
-## Feature Overview
+## Architecture Notes
 
-### History Workflow
-
-- The main panel opens as a compact transparent window
-- The history list stays responsive even when many items have been saved
-- The footer shows an accurate count for the current search
-- Arrow keys move through the filtered list and keep the active item in view
-- `Enter` pastes the selected item back to the last target application when supported
-- `Ctrl/Cmd + C` copies the selected history item back to the system clipboard
-- Double-clicking a history item pastes it directly when direct paste is available
-- Link items can show an open-link action in the bottom-right corner
-
-### Item Types
-
-- Text items: searchable, editable, copyable, and directly pasteable on supported platforms
-- Link items: detected from copied URLs and openable in the system default browser
-- Image items: thumbnail preview, large-image hover preview, copy/paste support on supported platforms
-- Mixed items: preserved as combined content where the backend supports mixed replay
-
-### Phone and PC Transfer
-
-- Start a temporary local-network transfer session from the desktop panel and scan the generated QR code with a phone
-- No mobile app is required; the phone uses a browser page served by the desktop app
-- Share the transfer link directly when scanning is inconvenient
-- Send plain text, images, and files between the desktop app and phone browser in a chat-style transfer view
-- Phone-to-desktop text and images are copied into the desktop clipboard and added to history
-- Desktop-to-phone messages appear in the phone page and provide copy or download actions
-- Received files are saved to the configured transfer download folder and can be opened or revealed from the desktop transfer history
-- Both sides show connected / disconnected status with green or red glow indicators; a disconnected phone is prompted to scan again
-- Transfer sessions stop automatically after being idle
-
-### Settings
-
-- Interface language: Simplified Chinese / English
-- Theme: Light / Dark / System
-- Accent color: Ocean / Amber / Jade / Rose
-- Launch on startup
-- Maximum history item count
-- Maximum stored image size
-- Transfer download folder
-- Global shortcut recording and clearing
-- Debug mode toggle
-
-Update checks are no longer configured from the settings page. The app checks for updates automatically on startup, shows an update icon in the top bar when a new version is available, and also exposes a manual `Check for Updates` action in the tray menu.
-
-### Native Integration
-
-- Single-instance behavior: reuses the existing app instance instead of opening duplicates
-- Tray support: keep the app available in the background and trigger `Main Panel` / `Check for Updates` / `Quit`
-- Global shortcut registration through Tauri plugin support
-- Update checks through the Tauri updater plugin
-
-## Cross-Platform Degradation
-
-The following capabilities remain platform-limited, while macOS direct paste depends on system permission:
-
-- Direct paste on Linux requires `xdotool` in X11 sessions or `wtype` in Wayland sessions
-- Native mixed clipboard replay remains Windows-only; Linux falls back to a single preferred payload when replaying mixed content
-
-History browsing, clipboard monitoring, search, filtering, pinning, editing, deleting, tray usage, update checks, settings persistence, launch on startup, and the general UI remain available on Linux.
+- History uses SQLite as the single source of truth
+- Frontend state is event-driven and does not replace SQLite as the canonical store
+- Settings are persisted in `settings.json`
+- Received LAN transfer files are stored in the configured download folder
+- Main-panel window size is persisted separately from the settings-panel size
+- WebDAV history sync is not implemented in the current codebase
 
 ## Tech Stack
 
 ### Frontend
 
 - `Vue 3`
+- `Vue Router`
 - `Vite`
-- Composition API based composables for state and behavior
+- Composition API based composables
 
 ### Desktop / Backend
 
@@ -137,13 +144,14 @@ History browsing, clipboard monitoring, search, filtering, pinning, editing, del
 - `tauri-plugin-updater`
 - `tauri-plugin-sql` with SQLite
 - `tauri-plugin-clipboard-next`
-- `tiny_http` for the temporary local-network mobile receiver
+- `tauri-plugin-dialog`
+- `tiny_http` for the temporary phone transfer server
 
-### Windows Integration
+### Platform Integration
 
-- Win32 APIs
-- WebView2
-- PowerShell-based helpers for Windows-specific clipboard and paste workflows
+- Windows: Win32 APIs, WebView2, PowerShell helpers
+- macOS: AppKit / Objective-C bindings for native integration
+- Linux: desktop automation tools for direct paste fallback
 
 ## Requirements
 
@@ -151,10 +159,10 @@ History browsing, clipboard monitoring, search, filtering, pinning, editing, del
 - `pnpm` `10+`
 - Rust `1.77.2+`
 
-Linux direct paste also requires one of the following:
+Linux direct paste also requires one of:
 
-- an X11 desktop session with `xdotool`
-- a Wayland session with `wtype`
+- `xdotool` in an X11 session
+- `wtype` in a Wayland session
 
 Windows development also requires:
 
@@ -208,46 +216,42 @@ Application data is stored in the Tauri app-local-data directory.
 
 Typical persisted data includes:
 
-- SQLite history database with embedded text, rich text, and image payloads
-- Original image bytes for mobile uploads, so history preview and displayed size can match the uploaded file more closely
-- Files received through Phone and PC Transfer, stored in the configured download folder
+- SQLite history database
+- Stored text, rich text, image payloads, and tag metadata
+- Original bytes for uploaded images when preserved
+- Files received through LAN transfer
 - `settings.json`
 
-The repository no longer relies on a plain `history.json` file for the primary history store; history is backed by SQLite in the current implementation.
+The project no longer relies on a plain `history.json` file as the primary history store.
 
 ## Project Structure
 
 ```text
 .
 ├── src/
-│   ├── components/      # Reusable Vue UI pieces
+│   ├── components/      # Reusable Vue UI components
 │   ├── composables/     # Frontend state and interaction logic
+│   ├── router/          # Route declarations
 │   ├── services/        # Tauri invoke/event wrappers
 │   ├── styles/          # Shared application styles
-│   └── utils/           # Frontend helpers
+│   ├── utils/           # Frontend helpers and constants
+│   └── views/           # Screen-level views
 ├── src-tauri/
-│   ├── src/commands/    # Tauri command entrypoints grouped by feature area
-│   ├── src/commands.rs  # Command module exports
-│   ├── src/runtime.rs   # Window and runtime behavior
-│   ├── src/lan_receiver.rs # Local-network mobile send receiver
-│   ├── src/update.rs    # App updater flow
-│   ├── src/repository.rs# SQLite history storage
-│   ├── src/storage.rs   # Settings and path storage
-│   └── src/clipboard/   # Clipboard backends and platform capabilities
+│   ├── src/commands/    # Tauri command entrypoints grouped by domain
+│   ├── src/clipboard/   # Clipboard capture and replay backends
+│   ├── src/lan_receiver.rs
+│   ├── src/repository.rs
+│   ├── src/runtime.rs
+│   ├── src/storage.rs
+│   ├── src/update.rs
+│   └── src/usecases.rs
 └── scripts/             # Local development helper scripts
 ```
-
-## Repository Notes
-
-- Package manager: `pnpm`
-- Default frontend language in code: JavaScript / Vue SFC
-- Native backend language: Rust
-- Current default branch in this workspace: `master`
 
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0.
 
-See the [LICENSE](./LICENSE) file for the full license text.
+See [LICENSE](./LICENSE) for the full text.
 
 If you modify and deploy this project for users over a network, AGPLv3 requires you to provide the corresponding source code of that modified version to those users.
