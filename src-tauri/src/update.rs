@@ -1,12 +1,28 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use reqwest::header::{ACCEPT, USER_AGENT};
+use semver::Version;
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::models::{
     AppError, SharedState, UpdateDebugStatePayload, UpdateStatus, UPDATE_STATUS_EVENT,
 };
+
+const GITHUB_RELEASES_API_URL: &str =
+    "https://api.github.com/repos/iFence/power-paste/releases?per_page=100";
+const GITHUB_RELEASES_ACCEPT: &str = "application/vnd.github+json";
+const GITHUB_RELEASES_USER_AGENT: &str = "power-paste-updater";
+const EMPTY_RELEASE_NOTES_TEXT: &str = "No release notes were provided for this version.";
+
+#[derive(Debug, Clone, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    body: Option<String>,
+    draft: bool,
+}
 
 fn emit_status(app: &AppHandle, shared: &Arc<SharedState>, next: UpdateStatus) -> UpdateStatus {
     *shared.update_status.lock().unwrap() = next.clone();
@@ -20,6 +36,81 @@ fn current_status(shared: &Arc<SharedState>) -> UpdateStatus {
 
 fn version_of(app: &AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+fn parse_release_version(raw: &str) -> Option<Version> {
+    Version::parse(raw.trim().trim_start_matches('v')).ok()
+}
+
+fn release_notes_section(version: &str, body: Option<&str>) -> String {
+    let content = body
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(EMPTY_RELEASE_NOTES_TEXT);
+    format!("## {version}\n\n{content}")
+}
+
+fn build_aggregated_release_notes(
+    current_version: &str,
+    latest_version: &str,
+    latest_body: Option<&str>,
+    releases: &[GithubRelease],
+) -> Option<String> {
+    let current = parse_release_version(current_version)?;
+    let latest = parse_release_version(latest_version)?;
+    let mut matched = releases
+        .iter()
+        .filter(|release| !release.draft)
+        .filter_map(|release| {
+            let version = parse_release_version(&release.tag_name)?;
+            if version <= current || version > latest {
+                return None;
+            }
+
+            Some((version, release))
+        })
+        .collect::<Vec<_>>();
+
+    matched.sort_by(|left, right| right.0.cmp(&left.0));
+
+    if matched.is_empty() {
+        return latest_body
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| release_notes_section(latest_version, Some(value)));
+    }
+
+    let notes = matched
+        .into_iter()
+        .map(|(_, release)| release_notes_section(&release.tag_name, release.body.as_deref()))
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+
+    Some(notes)
+}
+
+async fn fetch_aggregated_release_notes(
+    current_version: &str,
+    latest_version: &str,
+    latest_body: Option<&str>,
+) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+    let releases = client
+        .get(GITHUB_RELEASES_API_URL)
+        .header(ACCEPT, GITHUB_RELEASES_ACCEPT)
+        .header(USER_AGENT, GITHUB_RELEASES_USER_AGENT)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Vec<GithubRelease>>()
+        .await?;
+
+    Ok(build_aggregated_release_notes(
+        current_version,
+        latest_version,
+        latest_body,
+        &releases,
+    ))
 }
 
 fn active_debug_status(shared: &Arc<SharedState>) -> Option<UpdateStatus> {
@@ -101,11 +192,24 @@ async fn check_for_updates_inner(app: AppHandle, shared: Arc<SharedState>) -> Re
 
     match result {
         Ok(Some(update)) => {
+            let aggregated_body = match fetch_aggregated_release_notes(
+                &version_of(&app),
+                &update.version,
+                update.body.as_deref(),
+            )
+            .await
+            {
+                Ok(body) => body.or_else(|| update.body.clone()),
+                Err(error) => {
+                    eprintln!("update release notes fetch error: {error}");
+                    update.body.clone()
+                }
+            };
             let next = UpdateStatus {
                 status: "available".into(),
                 current_version: version_of(&app),
                 latest_version: Some(update.version.clone()),
-                body: update.body.clone(),
+                body: aggregated_body,
                 published_at: update.date.as_ref().map(ToString::to_string),
                 downloaded_bytes: None,
                 content_length: None,
@@ -307,7 +411,7 @@ pub(crate) fn set_update_debug_state(
 
 #[cfg(test)]
 mod tests {
-    use super::build_debug_status;
+    use super::{build_aggregated_release_notes, build_debug_status, GithubRelease};
     use crate::models::UpdateDebugStatePayload;
 
     #[test]
@@ -344,5 +448,59 @@ mod tests {
         let error = build_debug_status("0.3.4".into(), payload).expect_err("invalid status");
 
         assert_eq!(error.to_string(), "invalid_update_debug_status");
+    }
+
+    #[test]
+    fn aggregates_release_notes_between_current_and_latest_versions() {
+        let releases = vec![
+            GithubRelease {
+                tag_name: "v0.5.1".into(),
+                body: Some("Latest patch".into()),
+                draft: false,
+            },
+            GithubRelease {
+                tag_name: "v0.5.0".into(),
+                body: Some("Minor release".into()),
+                draft: false,
+            },
+            GithubRelease {
+                tag_name: "v0.4.1".into(),
+                body: Some("Hotfix".into()),
+                draft: false,
+            },
+            GithubRelease {
+                tag_name: "v0.4.0".into(),
+                body: Some("Current version".into()),
+                draft: false,
+            },
+        ];
+
+        let notes = build_aggregated_release_notes("0.4.0", "0.5.1", None, &releases)
+            .expect("aggregated notes");
+
+        assert!(notes.contains("## v0.5.1"));
+        assert!(notes.contains("## v0.5.0"));
+        assert!(notes.contains("## v0.4.1"));
+        assert!(!notes.contains("## v0.4.0"));
+    }
+
+    #[test]
+    fn falls_back_to_latest_body_when_release_list_does_not_match() {
+        let releases = vec![GithubRelease {
+            tag_name: "v0.3.9".into(),
+            body: Some("Older version".into()),
+            draft: false,
+        }];
+
+        let notes = build_aggregated_release_notes(
+            "0.4.0",
+            "0.5.1",
+            Some("Latest release notes"),
+            &releases,
+        )
+        .expect("fallback notes");
+
+        assert!(notes.contains("## 0.5.1"));
+        assert!(notes.contains("Latest release notes"));
     }
 }
