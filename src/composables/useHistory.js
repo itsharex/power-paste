@@ -84,6 +84,7 @@ export function useHistory({ platformCapabilities, settings, t }) {
   const hasMoreHistory = ref(true);
   const loadedHistoryOffset = ref(0);
   const totalHistoryCount = ref(0);
+  const skipNextFilterRefresh = ref(false);
   const {
     activeFilterTab,
     activeTagFilter,
@@ -406,23 +407,55 @@ export function useHistory({ platformCapabilities, settings, t }) {
       return;
     }
 
-    const previous = history.value[index].tagColors ?? [];
-    updateHistoryItemAt(index, {
-      ...history.value[index],
+    const currentFilterTag = activeTagFilter.value;
+    const originalItem = history.value[index];
+    const previous = originalItem.tagColors ?? [];
+    const nextItem = {
+      ...originalItem,
       tagColors,
-    });
+    };
+    const shouldRemoveFromCurrentList =
+      Boolean(currentFilterTag) && !tagColors.includes(currentFilterTag);
+    let removedItem = null;
+    let removedIndex = -1;
+
+    if (shouldRemoveFromCurrentList) {
+      skipNextFilterRefresh.value = true;
+      removedIndex = index;
+      removedItem = originalItem;
+      history.value.splice(index, 1);
+      updateSelectedAfterListChange(filteredHistory.value, id);
+      syncPersistedHistoryState(history.value);
+    } else {
+      updateHistoryItemAt(index, nextItem);
+    }
 
     try {
       await updateItemTagsRequest(id, tagColors);
+      if (shouldRemoveFromCurrentList) {
+        await refreshHistory({
+          detectNewHistory: false,
+        });
+      }
     } catch (error) {
-      const rollbackIndex = history.value.findIndex((item) => item.id === id);
-      if (rollbackIndex !== -1) {
-        updateHistoryItemAt(rollbackIndex, {
-          ...history.value[rollbackIndex],
+      if (removedItem && removedIndex !== -1) {
+        history.value.splice(removedIndex, 0, {
+          ...removedItem,
           tagColors: previous,
         });
+        await refreshHistory({
+          detectNewHistory: false,
+        });
       } else {
-        await refreshHistory();
+        const rollbackIndex = history.value.findIndex((item) => item.id === id);
+        if (rollbackIndex !== -1) {
+          updateHistoryItemAt(rollbackIndex, {
+            ...history.value[rollbackIndex],
+            tagColors: previous,
+          });
+        } else {
+          await refreshHistory();
+        }
       }
       throw error;
     }
@@ -477,6 +510,11 @@ export function useHistory({ platformCapabilities, settings, t }) {
   });
 
   watch([query, activeFilterTab, activeTagFilter], () => {
+    if (skipNextFilterRefresh.value) {
+      skipNextFilterRefresh.value = false;
+      return;
+    }
+
     void refreshHistory({
       detectNewHistory: false,
     });
