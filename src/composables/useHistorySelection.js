@@ -59,7 +59,8 @@ export function useHistorySelection() {
     }
   }
 
-  function restoreSelection(items) {
+  function restoreSelection(items, options = {}) {
+    const { detectNewHistory = true } = options
     const latestHistoryItem = getLatestHistoryItem(items)
     const previousLatestHistoryId = window.localStorage.getItem(
       LATEST_HISTORY_ID_STORAGE_KEY,
@@ -68,6 +69,7 @@ export function useHistorySelection() {
       SELECTED_HISTORY_ID_STORAGE_KEY,
     )
     const hasNewHistory =
+      detectNewHistory &&
       Boolean(previousLatestHistoryId) &&
       Boolean(latestHistoryItem?.id) &&
       latestHistoryItem.id !== previousLatestHistoryId

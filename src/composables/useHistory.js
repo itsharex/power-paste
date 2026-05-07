@@ -192,7 +192,8 @@ export function useHistory({ platformCapabilities, settings, t }) {
       loadedHistoryOffset.value < effectiveTotal;
   }
 
-  async function refreshHistory() {
+  async function refreshHistory(options = {}) {
+    const { detectNewHistory = true } = options;
     loading.value = true;
     loadedHistoryOffset.value = 0;
     hasMoreHistory.value = true;
@@ -204,7 +205,9 @@ export function useHistory({ platformCapabilities, settings, t }) {
       loadedHistoryOffset.value = items.length;
       updateHistoryPaginationState(items.length, limit);
       replaceHistory(items);
-      const { hasNewHistory } = restoreSelection(items);
+      const { hasNewHistory } = restoreSelection(items, {
+        detectNewHistory,
+      });
 
       if (hasNewHistory) {
         activeFilterTab.value = "all";
@@ -474,7 +477,9 @@ export function useHistory({ platformCapabilities, settings, t }) {
   });
 
   watch([query, activeFilterTab, activeTagFilter], () => {
-    void refreshHistory();
+    void refreshHistory({
+      detectNewHistory: false,
+    });
   });
 
   watch(selectedId, () => {
