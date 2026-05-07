@@ -35,13 +35,23 @@ function formatErrorMessage(error) {
     return "";
   }
 
+  const normalized = raw.replace("error sendingrequest", "error sending request");
+
   if (
-    raw.includes("https://github.com/iFence/power-paste/releases/latest/download/latest.json")
+    normalized.includes("error sending request for") ||
+    normalized.includes("failed to send request") ||
+    normalized.includes("client error")
+  ) {
+    return "";
+  }
+
+  if (
+    normalized.includes("https://github.com/iFence/power-paste/releases/latest/download/latest.json")
   ) {
     return "Unable to load latest.json from GitHub Releases. Confirm the tagged release is published instead of draft, and that the latest release includes the updater artifacts.";
   }
 
-  return raw.replace("error sendingrequest", "error sending request");
+  return normalized;
 }
 
 function updateDebugEnabled() {

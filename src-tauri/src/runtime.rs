@@ -108,6 +108,8 @@ pub(crate) fn toggle_panel(app: &AppHandle) -> Result<()> {
                     (settings.main_panel_width, settings.main_panel_height)
                 {
                     if should_reapply_size {
+                        // 仅兼容旧版保存的物理尺寸，新的逻辑尺寸不在跨屏打开时重复 set_size，
+                        // 避免系统 DPI 适配产生的 resize 再次被当成用户调整后写回。
                         if let Some(saved_scale_factor) = settings.main_panel_scale_factor {
                             let size = panel_physical_size_from_saved_physical(
                                 width,
@@ -116,8 +118,6 @@ pub(crate) fn toggle_panel(app: &AppHandle) -> Result<()> {
                                 target_scale_factor,
                             );
                             window.set_size(Size::Physical(size))?;
-                        } else {
-                            window.set_size(Size::Logical(clamp_panel_logical_size(width, height)))?;
                         }
                     }
                 } else {

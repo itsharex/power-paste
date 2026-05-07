@@ -21,17 +21,25 @@ export function useHistoryFilters({ history, settings, t }) {
     { key: 'mixed', label: t('filterMixed') },
   ])
 
-  const availableTagFilters = computed(() =>
-    HISTORY_TAG_COLORS.filter((color) =>
-      history.value.some(
-        (item) => Array.isArray(item.tagColors) && item.tagColors.includes(color),
-      ),
-    ).map((color) => ({
+  const availableTagFilters = computed(() => {
+    const activeColors = new Set()
+
+    for (const item of history.value) {
+      if (!Array.isArray(item.tagColors)) {
+        continue
+      }
+
+      for (const color of item.tagColors) {
+        activeColors.add(color)
+      }
+    }
+
+    return HISTORY_TAG_COLORS.filter((color) => activeColors.has(color)).map((color) => ({
       key: color,
       label: resolveTagLabel(color, settings.tagLabels, t),
       color,
-    })),
-  )
+    }))
+  })
 
   function syncActiveFilterTab() {
     const availableTabs = new Set(historyTabs.value.map((tab) => tab.key))

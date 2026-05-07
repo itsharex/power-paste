@@ -17,9 +17,9 @@ async function getRestoreLogicalSize(appWindow) {
 }
 
 async function getPersistedMainPanelSize(appWindow) {
-  const size = await appWindow.outerSize()
-  const scaleFactor = await appWindow.scaleFactor()
+  const size = await appWindow.innerSize()
   if (size.type === 'Physical') {
+    const scaleFactor = await appWindow.scaleFactor()
     return {
       width: Math.round(size.width / scaleFactor),
       height: Math.round(size.height / scaleFactor),

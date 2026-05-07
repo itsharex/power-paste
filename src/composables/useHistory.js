@@ -13,7 +13,10 @@ import {
 } from "../services/tauriApi";
 import { playCopySoundFallback } from "./useCopySound";
 import { useHistoryFilters } from "./useHistoryFilters";
-import { useHistorySelection } from "./useHistorySelection";
+import {
+  getLatestHistoryItem,
+  useHistorySelection,
+} from "./useHistorySelection";
 
 const HISTORY_PAGE_SIZE = 30;
 
@@ -55,8 +58,8 @@ function compareHistoryItems(left, right) {
     return Number(right.pinned) - Number(left.pinned);
   }
 
-  const pinnedAtCompare = (right.pinnedAt ?? "").localeCompare(
-    left.pinnedAt ?? "",
+  const pinnedAtCompare = (right.pinnedAt ?? right.createdAt ?? "").localeCompare(
+    left.pinnedAt ?? left.createdAt ?? "",
   );
   if (pinnedAtCompare !== 0) {
     return pinnedAtCompare;
@@ -107,8 +110,39 @@ export function useHistory({ platformCapabilities, settings, t }) {
     });
   });
 
+  function sortHistory(nextHistory = history.value) {
+    return [...nextHistory].sort(compareHistoryItems);
+  }
+
+  function replaceHistory(nextHistory) {
+    history.value = nextHistory;
+  }
+
+  function updateHistoryItemAt(index, updater) {
+    if (index < 0 || index >= history.value.length) {
+      return null;
+    }
+
+    const current = history.value[index];
+    const nextItem =
+      typeof updater === "function" ? updater(current) : updater;
+    history.value[index] = nextItem;
+    return nextItem;
+  }
+
   function reorderHistory(nextHistory = history.value) {
-    history.value = [...nextHistory].sort(compareHistoryItems);
+    replaceHistory(sortHistory(nextHistory));
+  }
+
+  function upsertHistoryItem(nextItem) {
+    const next = [...history.value];
+    const index = next.findIndex((item) => item.id === nextItem.id);
+    if (index !== -1) {
+      next.splice(index, 1);
+    }
+    next.push(nextItem);
+    replaceHistory(sortHistory(next));
+    return index;
   }
 
   function trimHistoryToLimit() {
@@ -169,7 +203,7 @@ export function useHistory({ platformCapabilities, settings, t }) {
       totalHistoryCount.value = page.totalCount;
       loadedHistoryOffset.value = items.length;
       updateHistoryPaginationState(items.length, limit);
-      reorderHistory(items);
+      replaceHistory(items);
       const { hasNewHistory } = restoreSelection(items);
 
       if (hasNewHistory) {
@@ -205,12 +239,12 @@ export function useHistory({ platformCapabilities, settings, t }) {
       const loadedIds = new Set(history.value.map((item) => item.id));
       const nextItems = items.filter((item) => !loadedIds.has(item.id));
       if (nextItems.length) {
-        reorderHistory([...history.value, ...nextItems]);
+        replaceHistory([...history.value, ...nextItems]);
       }
 
       updateHistoryPaginationState(items.length, limit);
       updateSelectedAfterListChange(history.value);
-      syncPersistedHistoryState();
+      syncPersistedHistoryState(history.value);
     } finally {
       loadingMore.value = false;
     }
@@ -229,17 +263,15 @@ export function useHistory({ platformCapabilities, settings, t }) {
       getLatestHistoryItem(history.value)?.id ?? null;
     const index = history.value.findIndex((entry) => entry.id === item.id);
     if (index === -1) {
-      history.value = [item, ...history.value];
+      upsertHistoryItem(item);
       totalHistoryCount.value += 1;
     } else {
-      history.value[index] = {
+      upsertHistoryItem({
         ...history.value[index],
         ...item,
-      };
-      history.value = [...history.value];
+      });
     }
 
-    reorderHistory();
     trimHistoryToLimit();
     const latestHistoryItem = getLatestHistoryItem(history.value);
 
@@ -254,7 +286,7 @@ export function useHistory({ platformCapabilities, settings, t }) {
       updateSelectedAfterListChange(filteredHistory.value);
     }
 
-    syncPersistedHistoryState();
+    syncPersistedHistoryState(history.value);
   }
 
   async function copyItem(id) {
@@ -305,25 +337,27 @@ export function useHistory({ platformCapabilities, settings, t }) {
       pinnedAt: current.pinnedAt,
     };
 
-    history.value[index] = {
+    updateHistoryItemAt(index, {
       ...current,
       pinned: nextPinned,
       pinnedAt: nextPinned ? new Date().toISOString() : null,
-    };
+    });
     reorderHistory();
-      updateSelectedAfterListChange(filteredHistory.value);
+    updateSelectedAfterListChange(filteredHistory.value);
+    syncPersistedHistoryState(history.value);
 
     try {
       await togglePinRequest(id);
     } catch (error) {
       const rollbackIndex = history.value.findIndex((item) => item.id === id);
       if (rollbackIndex !== -1) {
-        history.value[rollbackIndex] = {
+        updateHistoryItemAt(rollbackIndex, {
           ...history.value[rollbackIndex],
           ...previous,
-        };
+        });
         reorderHistory();
         updateSelectedAfterListChange(filteredHistory.value);
+        syncPersistedHistoryState(history.value);
       } else {
         await refreshHistory();
       }
@@ -345,18 +379,18 @@ export function useHistory({ platformCapabilities, settings, t }) {
     }
 
     const [removedItem] = history.value.splice(index, 1);
-    history.value = [...history.value];
     totalHistoryCount.value = Math.max(0, totalHistoryCount.value - 1);
     updateSelectedAfterListChange(filteredHistory.value, id);
+    syncPersistedHistoryState(history.value);
 
     try {
       await deleteItem(id);
     } catch (error) {
       history.value.splice(index, 0, removedItem);
-      history.value = [...history.value];
       totalHistoryCount.value += 1;
       reorderHistory();
       updateSelectedAfterListChange(filteredHistory.value);
+      syncPersistedHistoryState(history.value);
       throw error;
     }
   }
@@ -370,22 +404,20 @@ export function useHistory({ platformCapabilities, settings, t }) {
     }
 
     const previous = history.value[index].tagColors ?? [];
-    history.value[index] = {
+    updateHistoryItemAt(index, {
       ...history.value[index],
       tagColors,
-    };
-    history.value = [...history.value];
+    });
 
     try {
       await updateItemTagsRequest(id, tagColors);
     } catch (error) {
       const rollbackIndex = history.value.findIndex((item) => item.id === id);
       if (rollbackIndex !== -1) {
-        history.value[rollbackIndex] = {
+        updateHistoryItemAt(rollbackIndex, {
           ...history.value[rollbackIndex],
           tagColors: previous,
-        };
-        history.value = [...history.value];
+        });
       } else {
         await refreshHistory();
       }
@@ -447,10 +479,6 @@ export function useHistory({ platformCapabilities, settings, t }) {
 
   watch(selectedId, () => {
     syncPersistedHistoryState(history.value);
-  });
-
-  watch(history, () => {
-    syncPersistedHistoryState();
   });
 
   watch(filteredHistory, (items) => {

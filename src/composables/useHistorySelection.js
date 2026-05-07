@@ -3,19 +3,32 @@ import { nextTick, ref } from 'vue'
 const SELECTED_HISTORY_ID_STORAGE_KEY = 'clipdesk.selectedHistoryId'
 const LATEST_HISTORY_ID_STORAGE_KEY = 'clipdesk.latestHistoryId'
 
-function getLatestHistoryItem(items) {
-  return (
-    [...items].sort((left, right) => {
-      const createdAtCompare = (right.createdAt ?? '').localeCompare(
-        left.createdAt ?? '',
-      )
-      if (createdAtCompare !== 0) {
-        return createdAtCompare
-      }
+export function getLatestHistoryItem(items) {
+  let latest = null
 
-      return String(right.id ?? '').localeCompare(String(left.id ?? ''))
-    })[0] ?? null
-  )
+  for (const item of items) {
+    if (!latest) {
+      latest = item
+      continue
+    }
+
+    const createdAtCompare = (item.createdAt ?? '').localeCompare(
+      latest.createdAt ?? '',
+    )
+    if (createdAtCompare > 0) {
+      latest = item
+      continue
+    }
+
+    if (
+      createdAtCompare === 0 &&
+      String(item.id ?? '').localeCompare(String(latest.id ?? '')) > 0
+    ) {
+      latest = item
+    }
+  }
+
+  return latest
 }
 
 export function useHistorySelection() {
@@ -24,7 +37,7 @@ export function useHistorySelection() {
   )
   const historyPanelRef = ref(null)
 
-  function syncPersistedHistoryState(items) {
+  function syncPersistedHistoryState(items = []) {
     const latestHistoryItem = getLatestHistoryItem(items)
 
     if (selectedId.value) {
